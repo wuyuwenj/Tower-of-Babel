@@ -3,6 +3,7 @@ import {
   CARD_SLOTS,
   CARD_TIERS,
   THEME_COLOR,
+  hpScale,
   type CardSlot,
   type PlayerStats,
   type ThemeTag,
@@ -46,11 +47,15 @@ const FALLBACK_SKINS: Record<CardSlot, CardSkin> = {
   defense: { slot: "defense", name: "Iron Hide", description: "More HP and regen", tag: "stone" },
 };
 
-export function applyCard(stats: PlayerStats, offer: CardOffer): PlayerStats {
+export function applyCard(stats: PlayerStats, offer: CardOffer, levelIndex = 1): PlayerStats {
   const delta = CARD_TIERS[offer.slot][offer.tier - 1];
+  // Flat damage and HP deltas must ride the same depth curve as the starting
+  // kit, or upgrades quietly stop mattering the higher you climb.
+  const depth = hpScale(levelIndex);
   const next: PlayerStats = { ...stats };
   for (const [k, v] of Object.entries(delta) as Array<[keyof PlayerStats, number]>) {
-    next[k] = next[k] + v;
+    const scaled = k === "damage" || k === "maxHp" ? v * depth : v;
+    next[k] = next[k] + scaled;
   }
   next.attackCooldown = Math.max(0.12, next.attackCooldown);
   return next;

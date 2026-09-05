@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "fetch:worlds": "bash scripts/fetch-worlds.sh"
+    "fetch:worlds": "bash scripts/fetch-worlds.sh",
+    "sim": "tsx scripts/balance-sim.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",

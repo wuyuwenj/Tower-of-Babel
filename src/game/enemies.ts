@@ -4,7 +4,8 @@ import {
   MAX_ENEMIES,
   SPAWN_RING_MAX,
   SPAWN_RING_MIN,
-  depthScale,
+  damageScale,
+  hpScale,
   type Archetype,
 } from "./balance";
 import type { World } from "./world";
@@ -134,7 +135,9 @@ export class Enemies {
     if (slot === undefined) return false;
 
     const stats = ARCHETYPES[archetype];
-    const scale = depthScale(levelIndex);
+    // HP and damage ride separate curves: see balance.ts.
+    const hp = hpScale(levelIndex);
+    const dmg = damageScale(levelIndex);
     const angle = Math.random() * Math.PI * 2;
     const dist = SPAWN_RING_MIN + Math.random() * (SPAWN_RING_MAX - SPAWN_RING_MIN);
     const x = origin.x + Math.cos(angle) * dist;
@@ -144,10 +147,10 @@ export class Enemies {
     this.list.push({
       archetype,
       slot,
-      hp: stats.hp * scale,
-      maxHp: stats.hp * scale,
+      hp: stats.hp * hp,
+      maxHp: stats.hp * hp,
       speed: stats.speed,
-      damage: stats.damage * scale,
+      damage: stats.damage * dmg,
       radius: stats.radius * stats.scale,
       xp: stats.xp,
       x,
