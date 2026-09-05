@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGltfLoader } from "./gltf-runtime";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { ARENA_RADIUS, ARENA_RADIUS_MIN } from "./balance";
@@ -234,7 +234,9 @@ export class World {
   }
 
   private async loadColliderMesh(url: string, yOffset: number): Promise<void> {
-    const gltf = await new GLTFLoader().loadAsync(url);
+    // Shared Draco-capable loader: a Mint collider is compressed too, and
+    // losing it silently would drop the floor out of the level.
+    const gltf = await createGltfLoader().loadAsync(url);
     // The collider ships in the splat's own frame, so it needs the same
     // flip and vertical alignment the splat got.
     gltf.scene.rotation.x = Math.PI;

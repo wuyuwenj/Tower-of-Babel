@@ -1,13 +1,22 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGltfLoader, unsupportedExtensions } from "./gltf-runtime";
 
-const loader = new GLTFLoader();
+// Draco-capable: Mint's optimized GLBs are compressed and a bare loader throws.
+const loader = createGltfLoader();
 const cache = new Map<string, Promise<THREE.Group>>();
 
 export function loadGltf(url: string): Promise<THREE.Group> {
   let hit = cache.get(url);
   if (!hit) {
-    hit = loader.loadAsync(url).then((g) => g.scene);
+    hit = loader.loadAsync(url).then((g) => {
+      // Draco is handled; anything else a file *requires* would render as a
+      // broken mesh rather than an error, so say so instead.
+      const missing = unsupportedExtensions(g.parser.json.extensionsRequired);
+      if (missing.length > 0) {
+        throw new Error(`${url}: unsupported glTF extension(s) ${missing.join(", ")}`);
+      }
+      return g.scene;
+    });
     cache.set(url, hit);
   }
   return hit.then((scene) => scene.clone(true));
