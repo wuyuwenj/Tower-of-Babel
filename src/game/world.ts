@@ -2,7 +2,9 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
-import { ARENA_RADIUS } from "./balance";
+import { ARENA_RADIUS, ARENA_RADIUS_MIN } from "./balance";
+import { TERRAIN_GRID, sampleTerrain, terrainHeightAt, terrainWireframe, type Terrain } from "./terrain";
+import { resolveWorldUrl } from "./net";
 
 let rapierReady: Promise<void> | null = null;
 function initRapier(): Promise<void> {
@@ -31,6 +33,10 @@ export class World {
   private splat: SplatMesh | null = null;
   private groundBody: RAPIER.RigidBody | null = null;
   private groundColliders: RAPIER.Collider[] = [];
+  private wireframe: THREE.LineSegments | null = null;
+  private terrain: Terrain | null = null;
+  /** Play radius for the loaded world, measured rather than assumed. */
+  arenaRadius = ARENA_RADIUS;
   private readonly downRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
   constructor(canvas: HTMLCanvasElement, physics: RAPIER.World) {
@@ -75,28 +81,148 @@ export class World {
   async load(spec: WorldSpec, onStage?: (stage: string) => void): Promise<void> {
     this.unloadWorldGeometry();
 
-    onStage?.("Building ground");
-    if (spec.colliderUrl) {
-      try {
-        await this.loadColliderMesh(spec.colliderUrl);
-      } catch (err) {
-        console.warn("collider load failed, using flat ground", err);
-        this.buildFlatGround();
-      }
-    } else {
+    // ?nosplat=1 skips the splat entirely: a fast path for testing the game
+    // loop, and a usable fallback on machines that cannot render splats.
+    if (new URLSearchParams(location.search).get("nosplat")) {
+      onStage?.("Building ground");
       this.buildFlatGround();
+      this.scene.add(gridHelper());
+      onStage?.("Ready");
+      return;
     }
 
     onStage?.("Streaming world");
-    const splat = new SplatMesh({ url: spec.splatUrl });
-    if (spec.flip !== false) splat.quaternion.set(1, 0, 0, 0);
-    const scale = spec.scale ?? 1;
-    splat.scale.setScalar(scale);
-    splat.position.y = spec.yOffset ?? 0;
+    const flipped = spec.flip !== false;
+    const splatUrl = await resolveWorldUrl(spec.splatUrl);
+    const splat = new SplatMesh({ url: splatUrl });
+    if (flipped) splat.quaternion.set(1, 0, 0, 0);
+    splat.scale.setScalar(spec.scale ?? 1);
     this.scene.add(splat);
     this.splat = splat;
     await splat.initialized;
+
+    // Generated worlds arrive in arbitrary vertical alignment, so measure the
+    // floor from the splat cloud itself rather than hand-tuning each level.
+    onStage?.("Reading the ground");
+    const terrain = sampleTerrain(splat, flipped);
+    this.terrain = terrain.filled ? terrain : null;
+    splat.position.y = spec.yOffset ?? (terrain.filled ? terrain.yOffset : 0);
+
+    // Generated worlds are not a fixed size: a Mint basin measures ~21 units
+    // across where the seed worlds are far larger. Fit the arena to the world
+    // so enemies never spawn off the edge of it.
+    this.arenaRadius = terrain.filled
+      ? Math.max(ARENA_RADIUS_MIN, Math.min(ARENA_RADIUS, terrain.worldRadius * 0.92))
+      : ARENA_RADIUS;
+
+    onStage?.("Building ground");
+    let usedMesh = false;
+    if (spec.colliderUrl) {
+      try {
+        await this.loadColliderMesh(spec.colliderUrl, splat.position.y);
+        usedMesh = this.colliderAgreesWithSplat();
+        if (!usedMesh) {
+          console.warn("collider mesh disagrees with the splat; using sampled terrain");
+          this.clearGround();
+        }
+      } catch (err) {
+        console.warn("collider load failed, falling back to sampled terrain", err);
+        this.clearGround();
+      }
+    }
+    if (!usedMesh) this.buildSampledGround();
+
     onStage?.("Ready");
+  }
+
+  /**
+   * The collider mesh ships in the world's own frame, and providers do not
+   * agree on whether that frame is flipped. The splat is the ground truth the
+   * player sees, so sanity-check the mesh against the sampled floor and throw
+   * it away if it disagrees — a mismatched collider means falling through the
+   * world or standing on nothing.
+   */
+  private colliderAgreesWithSplat(): boolean {
+    const terrain = this.terrain;
+    if (!terrain) return true; // nothing to check against; trust the mesh
+
+    const r = this.arenaRadius * 0.5;
+    const samples: Array<[number, number]> = [
+      [0, 0],
+      [r, 0],
+      [-r, 0],
+      [0, r],
+      [0, -r],
+    ];
+
+    let total = 0;
+    let hits = 0;
+    for (const [x, z] of samples) {
+      const mesh = this.groundHeight(x, z);
+      const sampled = terrainHeightAt(terrain, x, z);
+      if (!Number.isFinite(mesh)) continue;
+      total += Math.abs(mesh - sampled);
+      hits++;
+    }
+    if (hits === 0) return false;
+    return total / hits < 2.5;
+  }
+
+  private clearGround(): void {
+    for (const c of this.groundColliders) this.physics.removeCollider(c, false);
+    this.groundColliders = [];
+    if (this.groundBody) {
+      this.physics.removeRigidBody(this.groundBody);
+      this.groundBody = null;
+    }
+  }
+
+  /** Toggleable debug view of the floor the physics is actually using. */
+  toggleWireframe(): void {
+    if (this.wireframe) {
+      this.scene.remove(this.wireframe);
+      this.wireframe.geometry.dispose();
+      this.wireframe = null;
+      return;
+    }
+    if (!this.terrain) return;
+    this.wireframe = terrainWireframe(this.terrain);
+    this.scene.add(this.wireframe);
+  }
+
+  /**
+   * Build collision from the splat cloud when the world shipped without a
+   * collider mesh. A Rapier heightfield over the play area is enough for a
+   * top-down survivors game: the player and 300 enemies just need a floor.
+   */
+  private buildSampledGround(): void {
+    const terrain = this.terrain;
+    if (!terrain) {
+      this.buildFlatGround();
+      return;
+    }
+
+    const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.groundBody = body;
+
+    const n = TERRAIN_GRID;
+    // Rapier reads heightfield data column-major; our grid is row-major.
+    const heights = new Float32Array(n * n);
+    for (let z = 0; z < n; z++) {
+      for (let x = 0; x < n; x++) heights[x * n + z] = terrain.heights[z * n + x];
+    }
+
+    const desc = RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, {
+      x: terrain.extent * 2,
+      y: 1,
+      z: terrain.extent * 2,
+    });
+    this.groundColliders.push(this.physics.createCollider(desc, body));
+
+    // A skirt underneath, so nothing can fall out of the world at the edges.
+    const skirt = RAPIER.ColliderDesc.cuboid(terrain.extent * 3, 0.5, terrain.extent * 3)
+      .setTranslation(0, -14, 0);
+    this.groundColliders.push(this.physics.createCollider(skirt, body));
   }
 
   private buildFlatGround(): void {
@@ -107,8 +233,12 @@ export class World {
     this.groundBody = body;
   }
 
-  private async loadColliderMesh(url: string): Promise<void> {
+  private async loadColliderMesh(url: string, yOffset: number): Promise<void> {
     const gltf = await new GLTFLoader().loadAsync(url);
+    // The collider ships in the splat's own frame, so it needs the same
+    // flip and vertical alignment the splat got.
+    gltf.scene.rotation.x = Math.PI;
+    gltf.scene.position.y = yOffset;
     const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     this.groundBody = body;
 
@@ -135,6 +265,12 @@ export class World {
   }
 
   private unloadWorldGeometry(): void {
+    if (this.wireframe) {
+      this.scene.remove(this.wireframe);
+      this.wireframe.geometry.dispose();
+      this.wireframe = null;
+    }
+    this.terrain = null;
     if (this.splat) {
       this.scene.remove(this.splat);
       this.splat.dispose?.();
@@ -167,6 +303,12 @@ export class World {
     this.renderer.dispose();
     this.physics.free();
   }
+}
+
+function gridHelper(): THREE.GridHelper {
+  const grid = new THREE.GridHelper(ARENA_RADIUS * 2, 34, 0x39ff9a, 0x1d5c3c);
+  grid.position.y = 0.02;
+  return grid;
 }
 
 export { RAPIER };

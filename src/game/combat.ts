@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Enemies } from "./enemies";
-import type { PlayerStats } from "./balance";
+import { weaponPower, type PlayerStats } from "./balance";
 
 const MAX_TARGETS = 24;
 const ORB_LIFETIME = 22;
@@ -54,13 +54,13 @@ export class Combat {
   }
 
   /** Returns XP collected this frame. */
-  update(dt: number, player: THREE.Vector3, stats: PlayerStats): number {
+  update(dt: number, player: THREE.Vector3, stats: PlayerStats, playerLevel: number): number {
     this.cooldown -= dt;
     if (this.cooldown <= 0) {
       const target = this.enemies.nearest(player.x, player.z, stats.attackRange);
       if (target) {
         this.cooldown = stats.attackCooldown;
-        this.strike(player, target.x, target.y, target.z, stats);
+        this.strike(player, target.x, target.y, target.z, stats, weaponPower(playerLevel));
       }
     }
 
@@ -80,11 +80,19 @@ export class Combat {
     return this.updateOrbs(dt, player, stats.pickupRadius);
   }
 
-  private strike(from: THREE.Vector3, x: number, y: number, z: number, stats: PlayerStats): void {
+  private strike(
+    from: THREE.Vector3,
+    x: number,
+    y: number,
+    z: number,
+    stats: PlayerStats,
+    power: number,
+  ): void {
     const splash = stats.splashRadius;
+    const damage = stats.damage * power;
     const hits = splash > 0
-      ? this.enemies.damageArea(x, z, splash, stats.damage, MAX_TARGETS)
-      : this.enemies.damageArea(x, z, 0.9, stats.damage, 1);
+      ? this.enemies.damageArea(x, z, splash, damage, MAX_TARGETS)
+      : this.enemies.damageArea(x, z, 0.9, damage, 1);
 
     for (const hit of hits) {
       if (hit.killed) this.spawnOrb(hit.x, hit.y, hit.z, hit.xp);

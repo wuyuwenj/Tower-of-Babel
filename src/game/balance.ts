@@ -28,8 +28,9 @@ export interface ArchetypeStats {
 export const ARCHETYPES: Record<Archetype, ArchetypeStats> = {
   swarm: { cost: 1, hp: 10, speed: 2.6, damage: 8, radius: 0.5, scale: 0.9, xp: 1 },
   fast: { cost: 2, hp: 14, speed: 4.6, damage: 10, radius: 0.45, scale: 0.8, xp: 2 },
-  tank: { cost: 5, hp: 70, speed: 1.7, damage: 18, radius: 0.9, scale: 1.6, xp: 6 },
-  boss: { cost: 25, hp: 900, speed: 1.9, damage: 30, radius: 1.8, scale: 3.4, xp: 40 },
+  tank: { cost: 5, hp: 62, speed: 1.7, damage: 16, radius: 0.9, scale: 1.6, xp: 6 },
+  // Boss HP is sized against opening DPS (~16/s) for a ~20 second fight.
+  boss: { cost: 25, hp: 320, speed: 1.9, damage: 26, radius: 1.8, scale: 3.4, xp: 40 },
 };
 
 // Difficulty is a pure function of how deep you are in the tower.
@@ -40,20 +41,65 @@ export function globalWave(levelIndex: number, wave: number): number {
   return (levelIndex - 1) * WAVES_PER_LEVEL + wave;
 }
 
+/**
+ * Points a wave may spend on enemies.
+ *
+ * Deliberately close to linear and hard-capped. An exponential curve compounds
+ * over the tower's 60+ waves into tens of thousands of enemies, which is both
+ * unplayable and far past MAX_ENEMIES. Depth is expressed through enemy
+ * strength (see depthScale) rather than unbounded crowd size.
+ */
+export const BUDGET_CAP = 170;
+
 export function waveBudget(levelIndex: number, wave: number): number {
-  return Math.round(20 * Math.pow(1.18, globalWave(levelIndex, wave) - 1));
+  const w = globalWave(levelIndex, wave);
+  return Math.round(Math.min(BUDGET_CAP, 18 * (1 + 0.16 * (w - 1))));
 }
 
-// Enemy stats scale gently with depth so late levels stay threatening.
+/**
+ * How much tougher everything is this deep in the tower. This — not crowd
+ * size — is what makes level 20 harder than level 5, and it keeps the frame
+ * budget flat all the way up.
+ *
+ * HP and damage scale separately on purpose. Enemies that hit ~4x harder
+ * simply delete the player; enemies that take ~7x longer to kill create
+ * pressure the player can answer with a better build.
+ */
 export function depthScale(levelIndex: number): number {
-  return 1 + (levelIndex - 1) * 0.12;
+  return hpScale(levelIndex);
+}
+
+export function hpScale(levelIndex: number): number {
+  return 1 + (levelIndex - 1) * 0.2;
+}
+
+export function damageScale(levelIndex: number): number {
+  return 1 + (levelIndex - 1) * 0.05;
+}
+
+/** Deeper rungs pay out more, so the player earns more cards to answer them. */
+export function xpScale(levelIndex: number): number {
+  return 1 + (levelIndex - 1) * 0.22;
 }
 
 export const WAVE_SPAWN_SECONDS = [26, 32, 20]; // per wave within a level
-export const SPAWN_RING_MIN = 18;
-export const SPAWN_RING_MAX = 26;
-export const ARENA_RADIUS = 34; // gameplay ring; world beyond this is scenery
+
+/**
+ * Play area.
+ *
+ * Generated worlds are not a fixed size — a Mint basin measured ~21 units
+ * across where the authored arena assumed 68 — so the arena is derived from
+ * each world's real walkable extent at load time and only clamped here.
+ * Enemies spawn on a ring just inside that edge.
+ */
+export const ARENA_RADIUS = 30; // preferred; shrunk to fit a smaller world
+export const ARENA_RADIUS_MIN = 9;
+export const SPAWN_RING_INNER = 0.62; // fraction of the arena radius
+export const SPAWN_RING_OUTER = 0.92;
 export const MAX_ENEMIES = 300;
+
+/** Triangle budget above which a generated creature is too heavy to swarm. */
+export const SWARM_TRIANGLE_BUDGET = 4000;
 
 export interface PlayerStats {
   maxHp: number;
@@ -76,6 +122,26 @@ export const BASE_PLAYER: PlayerStats = {
   pickupRadius: 3.2,
   regen: 0.4,
 };
+
+/**
+ * Stats you start a rung with.
+ *
+ * Every level is a self-contained run that begins at player level 1, but enemy
+ * HP grows with tower depth — so a flat starting kit makes rung 20 a ten-minute
+ * grind through wave 1. The tower arms you for the rung you are standing on:
+ * opening damage tracks enemy HP exactly, which keeps the *shape* of a run
+ * identical at every depth. What actually makes deep rungs harder is crowd
+ * size (the budget curve) and how hard those crowds hit (damageScale).
+ */
+export function startingStats(levelIndex: number): PlayerStats {
+  return {
+    ...BASE_PLAYER,
+    damage: BASE_PLAYER.damage * hpScale(levelIndex),
+    // HP has to track incoming pressure: deep crowds put roughly four times as
+    // many bodies on you at once as a first-rung wave does.
+    maxHp: Math.round(BASE_PLAYER.maxHp * (1 + (levelIndex - 1) * 0.14)),
+  };
+}
 
 export type CardSlot = "damage" | "area" | "utility" | "defense";
 export const CARD_SLOTS: CardSlot[] = ["damage", "area", "utility", "defense"];
@@ -103,6 +169,18 @@ export const CARD_TIERS: Record<CardSlot, Array<Partial<PlayerStats>>> = {
     { maxHp: 90, regen: 2.4 },
   ],
 };
+
+/**
+ * Your weapon sharpens as you level, independently of which cards you take.
+ *
+ * Without this the player's damage grows linearly in card picks while enemy HP
+ * grows with tower depth, so deep rungs turn into ten-minute grinds. Deeper
+ * levels pay more XP, which buys more player levels, which buys more damage —
+ * the curve answers itself.
+ */
+export function weaponPower(playerLevel: number): number {
+  return 1 + (playerLevel - 1) * 0.12;
+}
 
 export function xpForLevel(n: number): number {
   return Math.round(5 * Math.pow(1.35, n - 1)) + 3;

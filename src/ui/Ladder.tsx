@@ -12,7 +12,8 @@ interface Props {
 }
 
 export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onForge }: Props) {
-  const frontier = Math.min(maxCleared + 1, levels.length);
+  // The frontier is the top rung of the tower, not a function of array length.
+  const frontier = levels.reduce((m, l) => Math.max(m, l.index), 0);
 
   return (
     <div className="overlay">
@@ -52,9 +53,13 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onForge 
                       ? `Forged by ${level.forgedBy}${
                           level.coForgers.length ? ` · with ${level.coForgers.join(", ")}` : ""
                         }`
-                      : isFrontier
-                        ? "The frontier — nobody has cleared this yet"
-                        : "Seed level"}
+                      : isForging(level.status)
+                        ? "Being forged from the room's votes"
+                        : level.status === "sealed"
+                          ? `Forged, but sealed — clear ${level.index - 1} to open it`
+                          : isFrontier
+                            ? "The frontier — nobody has cleared this yet"
+                            : "Seed level"}
                   </div>
                   {tally.length > 0 && (
                     <div className="tally">

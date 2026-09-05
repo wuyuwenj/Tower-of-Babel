@@ -42,8 +42,14 @@ export const generate = internalAction({
         cardSkins: spec.cardSkins,
       });
 
-      // 2. Marble builds the world.
-      const world = await generateWorld(spec.worldPrompt);
+      // 2. The world. Resume an in-flight generation if a previous attempt
+      //    already started (and paid for) one.
+      const world = await generateWorld(spec.worldPrompt, level.providerWorldId, async (id) => {
+        await ctx.runMutation(internal.levels.rememberProvider, {
+          levelId,
+          providerWorldId: id,
+        });
+      });
       await ctx.runMutation(internal.levels.applyAssets, {
         levelId,
         splatUrl: world.splatUrl,
@@ -51,12 +57,22 @@ export const generate = internalAction({
         status: "forging:creatures",
       });
 
-      // 3. Mint builds what lives in it. The creature carries the extra
-      // constraints because it gets instanced and normalized; the monument
-      // stands alone and is fine as composed.
+      // 3. What lives in it, generated in parallel. The creature carries the
+      // extra constraints because it gets instanced and normalized; the
+      // monument stands alone and is fine as composed.
       const [enemyUrl, monumentUrl] = await Promise.all([
-        generateModel(spec.enemyPrompt + CREATURE_SUFFIX),
-        generateModel(spec.monumentPrompt),
+        generateModel(spec.enemyPrompt + CREATURE_SUFFIX, level.providerEnemyId, async (id) => {
+          await ctx.runMutation(internal.levels.rememberProvider, {
+            levelId,
+            providerEnemyId: id,
+          });
+        }),
+        generateModel(spec.monumentPrompt, level.providerMonumentId, async (id) => {
+          await ctx.runMutation(internal.levels.rememberProvider, {
+            levelId,
+            providerMonumentId: id,
+          });
+        }),
       ]);
       await ctx.runMutation(internal.levels.applyAssets, {
         levelId,
@@ -84,11 +100,22 @@ interface WorldAssets {
   colliderUrl?: string;
 }
 
-async function generateWorld(prompt: string): Promise<WorldAssets> {
+async function generateWorld(
+  prompt: string,
+  resumeId: string | undefined,
+  remember: (id: string) => Promise<void>,
+): Promise<WorldAssets> {
   // Mint is the primary provider: one key covers worlds and models, and its
   // worlds come back as SPZ + collider mesh, exactly what Spark and Rapier want.
   if (mint.hasMintKey()) {
-    const world = await mint.generateWorld(prompt, "standard");
+    let id = resumeId;
+    if (id) {
+      console.log(`resuming mint world ${id}`);
+    } else {
+      id = await mint.startWorld(prompt, "standard");
+      await remember(id);
+    }
+    const world = await mint.awaitWorld(id);
     return { splatUrl: world.splatUrl, colliderUrl: world.colliderUrl };
   }
 
@@ -133,9 +160,23 @@ async function generateWorld(prompt: string): Promise<WorldAssets> {
   return { splatUrl, colliderUrl: pickCollider(urls) };
 }
 
-async function generateModel(prompt: string): Promise<string | null> {
+async function generateModel(
+  prompt: string,
+  resumeId: string | undefined,
+  remember: (id: string) => Promise<void>,
+): Promise<string | null> {
   if (mint.hasMintKey()) {
-    const model = await mint.generateModel(prompt, "fast");
+    let id = resumeId;
+    if (!id) {
+      try {
+        id = await mint.startModel(prompt, "fast");
+        await remember(id);
+      } catch (err) {
+        console.warn("mint model start failed:", err);
+        return null;
+      }
+    }
+    const model = await mint.awaitModel(id);
     return model?.glbUrl ?? null;
   }
 
@@ -262,3 +303,35 @@ function pickCollider(urls: string[]): string | undefined {
   const glb = urls.filter((u) => u.toLowerCase().includes(".glb"));
   return glb.find((u) => /collider|collision|proxy/i.test(u)) ?? glb[0];
 }
+
+/**
+ * Attach an already-generated Mint world to a rung.
+ *
+ * Recovers a forge whose action died after Mint had finished (and billed) the
+ * generation — the assets exist, nobody was left holding the handle.
+ */
+export const adopt = internalAction({
+  args: { levelId: v.id("levels"), worldId: v.string() },
+  handler: async (ctx, { levelId, worldId }) => {
+    const world = await mint.fetchWorld(worldId);
+    await ctx.runMutation(internal.levels.applyAssets, {
+      levelId,
+      splatUrl: world.splatUrl,
+      colliderUrl: world.colliderUrl,
+      status: "forging:creatures",
+    });
+    await ctx.runMutation(internal.levels.rememberProvider, { levelId, providerWorldId: worldId });
+
+    const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
+    const [enemyUrl, monumentUrl] = await Promise.all([
+      generateModel(level?.enemyPrompt ?? "a stone creature", undefined, async () => {}),
+      generateModel(level?.monumentPrompt ?? "a stone statue", undefined, async () => {}),
+    ]);
+    await ctx.runMutation(internal.levels.applyAssets, {
+      levelId,
+      enemyUrl: enemyUrl ?? undefined,
+      monumentUrl: monumentUrl ?? undefined,
+    });
+    await ctx.runMutation(internal.levels.finishForge, { levelId });
+  },
+});

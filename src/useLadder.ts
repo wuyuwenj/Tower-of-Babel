@@ -24,6 +24,13 @@ export interface LadderApi {
   clearLevel: (levelIndex: number, score: number, timeSeconds: number) => Promise<string | null>;
   recordDeath: (levelIndex: number, score: number, timeSeconds: number) => void;
   forgeNow: (tag: ThemeTag) => void;
+  leaderboard: (levelIndex: number) => Promise<RunRow[]>;
+}
+
+export interface RunRow {
+  user: string;
+  score: number;
+  timeSeconds: number;
 }
 
 let client: ConvexClient | null = null;
@@ -124,6 +131,18 @@ export function useLadder(): LadderApi {
     [convex],
   );
 
+  const leaderboard = useCallback(
+    async (levelIndex: number): Promise<RunRow[]> => {
+      if (!convex) return [];
+      try {
+        return (await convex.query(fn("levels:leaderboard"), { levelIndex })) ?? [];
+      } catch {
+        return [];
+      }
+    },
+    [convex],
+  );
+
   return {
     levels,
     maxCleared,
@@ -134,6 +153,7 @@ export function useLadder(): LadderApi {
     clearLevel,
     recordDeath,
     forgeNow,
+    leaderboard,
   };
 }
 

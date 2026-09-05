@@ -11,6 +11,7 @@ interface Props {
   themeLabel: string;
   boss: { hp: number; maxHp: number } | null;
   fps: number;
+  forging: { index: number; theme: string; stage: string; elapsed: number } | null;
   onQuit: () => void;
 }
 
@@ -56,6 +57,20 @@ export function Hud(props: Props) {
         </div>
       </div>
 
+      {props.forging && (
+        <div className="forge-banner">
+          <span className="pulse" />
+          <span>
+            Level {props.forging.index} is being forged
+            {props.forging.theme !== "unforged" ? ` — ${props.forging.theme}` : ""}
+          </span>
+          <span className="stage">
+            {props.forging.stage} · {Math.floor(props.forging.elapsed / 60)}m
+            {(props.forging.elapsed % 60).toString().padStart(2, "0")}s
+          </span>
+        </div>
+      )}
+
       <div className="hud-right">
         <div>{props.fps} fps</div>
         <div style={{ marginTop: 8 }}>
@@ -63,7 +78,7 @@ export function Hud(props: Props) {
             Reset
           </button>
         </div>
-        <div style={{ marginTop: 8, opacity: 0.6 }}>WASD move · Q/E turn</div>
+        <div style={{ marginTop: 8, opacity: 0.6 }}>WASD move · Q/E turn · ` floor</div>
       </div>
     </div>
   );

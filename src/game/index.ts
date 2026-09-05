@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BASE_PLAYER, THEME_COLOR, WAVES_PER_LEVEL, xpForLevel, type Archetype, type PlayerStats, type ThemeTag } from "./balance";
+import { THEME_COLOR, WAVES_PER_LEVEL, startingStats, xpForLevel, xpScale, type Archetype, type PlayerStats, type ThemeTag } from "./balance";
 import { EventBus } from "./bus";
 import { applyCard, rollOffers, type CardOffer, type CardSkin } from "./cards";
 import { Combat } from "./combat";
@@ -39,7 +39,7 @@ export class Game {
   private waves: Waves;
   private director = new Director();
 
-  private stats: PlayerStats = { ...BASE_PLAYER };
+  private stats: PlayerStats = startingStats(1);
   private playerLevel = 1;
   private xp = 0;
   private kills = 0;
@@ -64,8 +64,14 @@ export class Game {
 
   static async create(canvas: HTMLCanvasElement): Promise<Game> {
     const world = await World.create(canvas);
-    return new Game(world);
+    const game = new Game(world);
+    window.addEventListener("keydown", game.onDebugKey);
+    return game;
   }
+
+  private onDebugKey = (e: KeyboardEvent) => {
+    if (e.code === "Backquote") this.world.toggleWireframe();
+  };
 
   async loadLevel(spec: LevelSpec): Promise<void> {
     this.paused = true;
@@ -78,6 +84,7 @@ export class Game {
 
     const color = THEME_COLOR[spec.themeTag] ?? 0xffffff;
     this.enemies.setTheme(color);
+    this.enemies.setArena(this.world.arenaRadius);
     this.combat.setThemeColor(color);
 
     // This level's forged creature, else the baked one for its theme. Stock
@@ -107,7 +114,8 @@ export class Game {
 
     this.levelIndex = spec.levelIndex;
     this.cardSkins = spec.cardSkins;
-    this.stats = { ...BASE_PLAYER };
+    // The tower arms you for the rung you are on; see startingStats.
+    this.stats = startingStats(spec.levelIndex);
     this.player.setStats(this.stats);
     this.player.reset(new THREE.Vector3(0, 0, 0));
     this.playerLevel = 1;
@@ -168,7 +176,7 @@ export class Game {
     this.director.update(dt, this.player.hp / this.stats.maxHp);
 
     const before = this.enemies.aliveCount;
-    const gained = this.combat.update(dt, this.player.position, this.stats);
+    const gained = this.combat.update(dt, this.player.position, this.stats, this.playerLevel);
     const after = this.enemies.aliveCount;
     if (after < before) this.kills += before - after;
     if (gained > 0) this.addXp(gained);
@@ -208,7 +216,8 @@ export class Game {
   }
 
   private addXp(amount: number): void {
-    this.xp += amount;
+    // Deeper rungs pay more, which buys the extra card picks they demand.
+    this.xp += Math.max(1, Math.round(amount * xpScale(this.levelIndex)));
     let needed = xpForLevel(this.playerLevel);
     while (this.xp >= needed) {
       this.xp -= needed;
@@ -226,7 +235,7 @@ export class Game {
 
   /** Called by the UI when the player picks a card. */
   choose(offer: CardOffer): void {
-    this.stats = applyCard(this.stats, offer);
+    this.stats = applyCard(this.stats, offer, this.levelIndex);
     this.player.setStats(this.stats);
     this.bus.emit("pick", { tag: offer.tag });
     this.emitHp();
@@ -248,6 +257,7 @@ export class Game {
   }
 
   dispose(): void {
+    window.removeEventListener("keydown", this.onDebugKey);
     cancelAnimationFrame(this.raf);
     this.running = false;
     this.combat.dispose();
