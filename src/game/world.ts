@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createGltfLoader } from "./gltf-runtime";
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatEdit, SplatEditSdf, SplatEditSdfType, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { ARENA_RADIUS, ARENA_RADIUS_MIN } from "./balance";
 import { TERRAIN_GRID, sampleTerrain, terrainHeightAt, terrainWireframe, type Terrain } from "./terrain";
@@ -22,6 +22,12 @@ export interface WorldSpec {
   scale?: number;
   /** Radius of the invisible arena wall. Defaults to ARENA_RADIUS. */
   arenaRadius?: number;
+  /**
+   * Height above the floor at which the world is cut away, so a follow camera
+   * above a room's ceiling looks down into it rather than at it. Defaults to
+   * CEILING_CUT; null keeps the whole world. Tune with ?ceiling=N (0 = none).
+   */
+  ceilingCut?: number | null;
 }
 
 /** Segments in the arena wall. 32 is smooth enough that corners are unnoticeable. */
@@ -29,6 +35,10 @@ const WALL_SEGMENTS = 32;
 /** Wall spans floorY - 2 up to floorY + 10: unsteppable, unjumpable, uneven-floor proof. */
 const WALL_HALF_HEIGHT = 6;
 const WALL_THICKNESS = 0.3;
+/** Above every head and enemy, well below the camera at CAM_HEIGHT. */
+const CEILING_CUT = 3.5;
+/** Fade the cut over this many units rather than slicing splats in half. */
+const CEILING_CUT_SOFT_EDGE = 0.6;
 const UP = new THREE.Vector3(0, 1, 0);
 
 export class World {
@@ -44,6 +54,7 @@ export class World {
   private groundColliders: RAPIER.Collider[] = [];
   private wallBody: RAPIER.RigidBody | null = null;
   private arenaRing: THREE.Mesh | null = null;
+  private ceilingCut: SplatEdit | null = null;
   private wireframe: THREE.Group | null = null;
   private terrain: Terrain | null = null;
   /**
@@ -185,6 +196,7 @@ export class World {
 
     // After the ground, so the wall can sit on the floor it actually found.
     this.buildArenaWall();
+    this.buildCeilingCut(spec);
 
     onStage?.("Ready");
   }
@@ -300,6 +312,26 @@ export class World {
     this.scene.add(this.arenaRing);
   }
 
+  /**
+   * Hide everything above head height. The camera follows from well above a
+   * room's ceiling, so without this an indoor world shows its roof and little
+   * else; with it the view is a dollhouse cut, straight down into the room.
+   * Spark evaluates the edit on the GPU per splat: a PLANE SDF is the
+   * half-space below its local XY plane, so it is turned to face up and
+   * inverted to select what is *above* the cut, then multiplied to alpha 0.
+   */
+  private buildCeilingCut(spec: WorldSpec): void {
+    const height = resolveCeilingCut(spec);
+    if (height === null) return;
+    const plane = new SplatEditSdf({ type: SplatEditSdfType.PLANE, invert: true, opacity: 0 });
+    plane.rotation.x = -Math.PI / 2; // local +Z → world +Y
+    plane.position.y = this.groundHeight(0, 0) + height;
+    const cut = new SplatEdit({ softEdge: CEILING_CUT_SOFT_EDGE });
+    cut.addSdf(plane);
+    this.scene.add(cut);
+    this.ceilingCut = cut;
+  }
+
   /** Tint the boundary ring to match the level's theme. */
   setArenaColor(color: number): void {
     const material = this.arenaRing?.material as THREE.MeshBasicMaterial | undefined;
@@ -409,6 +441,10 @@ export class World {
       this.splat.dispose?.();
       this.splat = null;
     }
+    if (this.ceilingCut) {
+      this.scene.remove(this.ceilingCut);
+      this.ceilingCut = null;
+    }
     if (this.arenaRing) {
       this.scene.remove(this.arenaRing);
       disposeTree(this.arenaRing);
@@ -486,6 +522,16 @@ function resolveArenaRadius(spec: WorldSpec, measured: number): number {
   const override = Number(new URLSearchParams(location.search).get("arena"));
   if (Number.isFinite(override) && override > 0) return override;
   return spec.arenaRadius ?? measured;
+}
+
+/** Cut height above the floor, or null for no cut. */
+function resolveCeilingCut(spec: WorldSpec): number | null {
+  const param = new URLSearchParams(location.search).get("ceiling");
+  if (param !== null) {
+    const override = Number(param);
+    return Number.isFinite(override) && override > 0 ? override : null;
+  }
+  return spec.ceilingCut === undefined ? CEILING_CUT : spec.ceilingCut;
 }
 
 /**

@@ -180,6 +180,7 @@ export default function App() {
       yOffset: level.yOffset ?? undefined,
       scale: level.scale,
       arenaRadius: level.arenaRadius ?? undefined,
+      ceilingCut: level.ceilingCut,
       composition: level.composition,
       cardSkins: level.cardSkins,
     });

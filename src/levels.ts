@@ -14,6 +14,8 @@ export interface LevelRecord {
   scale: number;
   /** Invisible wall radius. null = the balance.ts default. Tune with ?arena=N. */
   arenaRadius: number | null;
+  /** Height above the floor to cut the world away at. Unset = the world.ts default; null = no cut. */
+  ceilingCut?: number | null;
   composition: Archetype[][] | null;
   cardSkins: CardSkin[] | null;
   status: LevelStatus;
