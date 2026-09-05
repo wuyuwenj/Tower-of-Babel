@@ -22,7 +22,15 @@ const cases: Case[] = [
     want: `${CDN}/haunted-house.spz`,
   },
   {
-    name: "the splat really is cached locally",
+    // What Vite actually answers for a cached .spz: it has no mime mapping for
+    // the extension, so the header is absent entirely. Verified against the
+    // dev server. The check must be "not the app shell", never "is octet-stream".
+    name: "the splat is cached and served with no content type",
+    reply: () => new Response(null, { status: 200 }),
+    want: WORLD,
+  },
+  {
+    name: "the splat is cached and served as octet-stream",
     reply: () => new Response(null, {
       status: 200,
       headers: { "content-type": "application/octet-stream" },
