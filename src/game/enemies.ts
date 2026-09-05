@@ -18,6 +18,13 @@ const CELL = 1.6;
  */
 const MODEL_YAW_OFFSET = 0;
 
+/**
+ * Theme-colored emissive added to generated creatures so dark ones stay
+ * legible. Raise it if enemies vanish into a dark floor, lower it if they
+ * wash out into flat silhouettes — 0.5 reads at a glance but loses texture.
+ */
+const CREATURE_GLOW = 0.35;
+
 interface Enemy {
   archetype: Archetype;
   slot: number;
@@ -109,7 +116,16 @@ export class Enemies {
    */
   setModel(geometry: THREE.BufferGeometry, material: THREE.Material): void {
     for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
-      this.build(archetype, geometry.clone(), material.clone());
+      const mat = material.clone();
+      // A generated creature can be nearly black — a shadow wraith on a night
+      // floor reads as a smudge. Instance color multiplies the base map, so it
+      // can never lift one; emissive adds light regardless of the texture.
+      // Keying it to the theme keeps the creature inside the floor's palette.
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        mat.emissive = new THREE.Color(this.themeColor);
+        mat.emissiveIntensity = CREATURE_GLOW;
+      }
+      this.build(archetype, geometry.clone(), mat);
     }
     this.generated = true;
   }

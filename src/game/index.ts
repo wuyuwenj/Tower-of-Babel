@@ -11,6 +11,13 @@ import { Player } from "./player";
 import { Waves } from "./waves";
 import { World, type WorldSpec } from "./world";
 
+/**
+ * Height a generated creature is normalized to, before its archetype scale.
+ * The player capsule is 1.94 tall, so a swarm enemy (0.9x) lands at 1.35 —
+ * clearly a creature rather than the speck that 1.0 produced.
+ */
+const CREATURE_HEIGHT = 1.5;
+
 export interface LevelSpec extends WorldSpec {
   levelIndex: number;
   enemyUrl?: string | null;
@@ -77,7 +84,7 @@ export class Game {
     // shapes are the last resort: a dead provider URL must not empty the level.
     const enemyUrl = spec.enemyUrl ?? `/creatures/${spec.themeTag}.glb`;
     this.bus.emit("loading", { stage: "Loading creatures", done: false });
-    const model = await loadInstanceable(enemyUrl, 1.0);
+    const model = await loadInstanceable(enemyUrl, CREATURE_HEIGHT);
     if (model) this.enemies.setModel(model.geometry, model.material);
     else this.enemies.resetModel();
 
