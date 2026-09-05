@@ -73,7 +73,7 @@ if (!rec.operationId) {
         // Marble rewrites prompts by default, as enrich() does. Ours says
         // exactly what the arena needs; do not let a third rewrite soften it.
         disable_recaption: true,
-        is_pano: "true",
+        is_pano: true,
       },
     }),
   });
