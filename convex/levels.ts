@@ -6,6 +6,20 @@ import { THEME_TAGS } from "./composer";
 
 const BASE = "https://storage.googleapis.com/forge-dev-public/hackathon-260227";
 
+/**
+ * A forge that has not moved in this long is treated as dead (backend restart,
+ * a lost scheduler run) and may be retried. Without this a single interrupted
+ * forge would wedge that rung — and the whole ladder above it — forever.
+ */
+const FORGE_STALE_MS = 20 * 60_000;
+
+function forgeIsStale(level: { status: string; forgeStartedAt?: number }): boolean {
+  return (
+    level.status.startsWith("forging") &&
+    Date.now() - (level.forgeStartedAt ?? 0) > FORGE_STALE_MS
+  );
+}
+
 /** Rungs that exist before anyone has forged anything. */
 const SEED = [
   { index: 1, theme: "haunted house", themeTag: "void", splatUrl: `${BASE}/haunted-house.spz` },
@@ -106,7 +120,7 @@ export const reachedBoss = mutation({
   args: { levelIndex: v.number() },
   handler: async (ctx, { levelIndex }) => {
     const existing = await byIndex(ctx, levelIndex + 1);
-    if (existing && existing.status !== "failed") {
+    if (existing && existing.status !== "failed" && !forgeIsStale(existing)) {
       return { started: false as const, status: existing.status };
     }
 
@@ -117,7 +131,8 @@ export const reachedBoss = mutation({
 
     let id;
     if (existing) {
-      // Previous forge failed; retry it with whatever the room has voted since.
+      // Previous forge failed or died mid-flight; retry it with whatever the
+      // room has voted since.
       id = existing._id;
       await ctx.db.patch(id, {
         status: "forging:composing",
@@ -183,6 +198,24 @@ export const clearLevel = mutation({
       await ctx.db.patch(next._id, { coForgers: [...next.coForgers, user] });
     }
     return { forgedBy: next.forgedBy, first: false };
+  },
+});
+
+/** Sweep forges that died mid-flight so their rungs can be retried. */
+export const reapStuckForges = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const levels = await ctx.db.query("levels").withIndex("by_index").collect();
+    let reaped = 0;
+    for (const level of levels) {
+      if (!forgeIsStale(level)) continue;
+      await ctx.db.patch(level._id, {
+        status: "failed",
+        error: "forge interrupted (backend restart or lost scheduler run)",
+      });
+      reaped++;
+    }
+    return reaped;
   },
 });
 
@@ -298,3 +331,12 @@ async function frontierIndex(ctx: { db: { query: (t: "levels") => any } }): Prom
   const levels = await ctx.db.query("levels").withIndex("by_index").collect();
   return levels.reduce((m: number, l: { index: number }) => Math.max(m, l.index), 0);
 }
+
+/** Dev-only: drop a rung entirely. Used to clean up botched experiments. */
+export const removeLevel = mutation({
+  args: { index: v.number() },
+  handler: async (ctx, { index }) => {
+    const level = await byIndex(ctx, index);
+    if (level) await ctx.db.delete(level._id);
+  },
+});
