@@ -5,6 +5,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { compose } from "./composer";
 import { enrich } from "./enrich";
+import * as mint from "./mint";
 
 const MARBLE = "https://api.worldlabs.ai/marble/v1";
 const TRIPO = "https://api.tripo3d.ai/v2/openapi";
@@ -82,9 +83,16 @@ interface WorldAssets {
 }
 
 async function generateWorld(prompt: string): Promise<WorldAssets> {
+  // Mint is the primary provider: one key covers worlds and models, and its
+  // worlds come back as SPZ + collider mesh, exactly what Spark and Rapier want.
+  if (mint.hasMintKey()) {
+    const world = await mint.generateWorld(prompt, "standard");
+    return { splatUrl: world.splatUrl, colliderUrl: world.colliderUrl };
+  }
+
   const key = process.env.WORLDLABS_API_KEY;
   if (!key) {
-    console.warn("WORLDLABS_API_KEY missing — reusing a seed world for this rung");
+    console.warn("no world provider key — reusing a seed world for this rung");
     return { splatUrl: FALLBACK_SPLAT };
   }
 
@@ -124,9 +132,14 @@ async function generateWorld(prompt: string): Promise<WorldAssets> {
 }
 
 async function generateModel(prompt: string): Promise<string | null> {
+  if (mint.hasMintKey()) {
+    const model = await mint.generateModel(prompt, "fast");
+    return model?.glbUrl ?? null;
+  }
+
   const key = process.env.TRIPO_API_KEY;
   if (!key) {
-    console.warn("TRIPO_API_KEY missing — skipping model generation");
+    console.warn("no model provider key — skipping model generation");
     return null;
   }
 
