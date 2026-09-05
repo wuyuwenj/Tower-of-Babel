@@ -424,13 +424,36 @@ export class World {
     }
   }
 
-  /** Ground height under (x, z). Falls back to 0 when nothing is hit. */
-  groundHeight(x: number, z: number, from = 40): number {
+  /**
+   * Ground height under (x, z). Falls back to 0 when nothing is hit.
+   *
+   * A collider mesh for an interior has a ceiling, and a ray dropped from
+   * high up finds that first. So cast from just above head height at the
+   * floor the splat cloud reported, and only drop from the sky when that
+   * finds nothing. The wall never counts: enemies cross it, and a ray
+   * starting inside a wall segment would read its top as the ground.
+   */
+  groundHeight(x: number, z: number): number {
+    const guess = this.terrain ? terrainHeightAt(this.terrain, x, z) : 0;
+    const low = this.castDown(x, guess + 2.3, z, 60);
+    if (low !== null) return low;
+    return this.castDown(x, 40, z, 100) ?? 0;
+  }
+
+  private castDown(x: number, from: number, z: number, maxToi: number): number | null {
     this.downRay.origin.x = x;
     this.downRay.origin.y = from;
     this.downRay.origin.z = z;
-    const hit = this.physics.castRay(this.downRay, from + 60, true);
-    return hit ? from - hit.timeOfImpact : 0;
+    const hit = this.physics.castRay(
+      this.downRay,
+      maxToi,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      this.wallBody ?? undefined,
+    );
+    return hit ? from - hit.timeOfImpact : null;
   }
 
   render(): void {
