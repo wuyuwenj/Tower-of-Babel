@@ -105,7 +105,7 @@ h1 { font-size: 30px; }
 .ladder { display: flex; flex-direction: column-reverse; gap: 8px; margin-bottom: 20px; }
 .rung {
   display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 14px;
-  border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px;
   background: rgba(255,255,255,0.02); text-align: left; color: var(--text);
   font: inherit; width: 100%;
 }
@@ -114,7 +114,7 @@ h1 { font-size: 30px; }
 .rung.locked { opacity: 0.45; }
 .rung.frontier { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(232,198,122,0.18) inset; }
 .rung .idx { font-size: 22px; color: var(--gold); font-variant-numeric: tabular-nums; }
-.rung .theme { font-size: 16px; text-transform: capitalize; }
+.rung .theme { font-size: 16px; }
 .rung .meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .rung .state { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
 
@@ -174,3 +174,105 @@ button.ghost:hover { color: var(--text); border-color: var(--gold); }
   background: var(--bg); z-index: 30; color: var(--muted);
 }
 .loading .title { color: var(--gold); font-size: 22px; letter-spacing: 0.16em; text-transform: uppercase; }
+
+/* ---------- Start page ---------- */
+.panel.start { max-width: 960px; width: min(94vw, 960px); padding: 30px 36px 22px; }
+.hero { margin-bottom: 20px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.hero .climb { font-size: 15px; padding: 13px 26px; white-space: nowrap; margin-bottom: 4px; }
+.hero .kicker { color: var(--gold); font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; margin-bottom: 10px; }
+.hero h1 { font-size: 34px; margin-bottom: 6px; }
+.hero .sub { margin: 0; font-size: 15px; }
+
+.steps {
+  list-style: none; margin: 0 0 22px; padding: 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.steps li {
+  display: flex; gap: 12px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,0.02);
+}
+.steps .n {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--gold-dim); color: var(--gold); font-size: 13px;
+  display: grid; place-items: center; font-variant-numeric: tabular-nums;
+}
+.steps b { display: block; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.steps span:not(.n) { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+@media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
+
+.rung .tag {
+  display: inline-block; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--gold); margin-right: 8px; vertical-align: middle;
+}
+.rung .quote { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 5px; }
+.rung .quote b { color: var(--text); font-weight: 500; font-style: normal; }
+.rung .dim { opacity: 0.7; margin-top: 2px; }
+
+.rung.ghost { border-style: dashed; opacity: 0.6; background: transparent; }
+.rung.ghost .idx { color: var(--gold-dim); }
+.rung.pending { opacity: 0.8; }
+.rung.pending .idx { color: var(--gold-dim); }
+.rung.frontier { animation: frontier-pulse 2.6s ease-in-out infinite; }
+@keyframes frontier-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(232,198,122,0.18) inset, 0 0 0 0 rgba(232,198,122,0); }
+  50% { box-shadow: 0 0 0 1px rgba(232,198,122,0.36) inset, 0 0 26px 0 rgba(232,198,122,0.12); }
+}
+
+.rung .cta {
+  display: inline-block; padding: 7px 14px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; background: var(--gold); color: #14110a;
+}
+.rung .cta.quiet { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+.rung.playable:hover .cta.quiet { color: var(--text); border-color: var(--gold); }
+
+.stepper { display: flex; gap: 6px; justify-content: flex-end; font-size: 11px; letter-spacing: 0.04em; margin-top: 4px; }
+.stepper span { color: var(--muted); }
+.stepper span + span::before { content: "→"; margin-right: 6px; opacity: 0.5; }
+.stepper .done { color: var(--gold-dim); }
+.stepper .live { color: var(--gold); animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.45; } }
+
+.foot { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.foot .dot { opacity: 0.5; }
+.name { color: var(--gold); font-weight: 600; }
+.name-edit {
+  pointer-events: auto; background: transparent; border: none; color: var(--muted);
+  cursor: pointer; font: inherit; font-size: 12px; padding: 0 5px;
+}
+.name-edit:hover { color: var(--gold); }
+.name-input {
+  font: inherit; font-size: 12px; background: rgba(255,255,255,0.05);
+  border: 1px solid var(--gold-dim); color: var(--text); border-radius: 6px; padding: 3px 8px; width: 170px;
+}
+
+/* ---------- Architect ---------- */
+.architect {
+  border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 0 0 18px;
+  background: linear-gradient(180deg, rgba(232,198,122,0.05), rgba(255,255,255,0.01));
+  display: flex; flex-direction: column; gap: 16px;
+}
+.architect .field { display: flex; flex-direction: column; gap: 8px; }
+.architect .label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.architect label, .architect .label {
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold);
+}
+.architect label em { font-style: normal; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 6px; }
+.architect textarea, .architect input {
+  font: inherit; font-size: 15px; line-height: 1.5; color: var(--text);
+  background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; width: 100%; resize: vertical; outline: none;
+}
+.architect input { font-size: 14px; }
+.architect textarea:focus, .architect input:focus { border-color: var(--gold); }
+.architect .refresh {
+  pointer-events: auto; cursor: pointer; font: inherit; font-size: 12px;
+  background: transparent; border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: 4px 12px; white-space: nowrap;
+}
+.architect .refresh:hover { color: var(--text); border-color: var(--gold); }
+.architect .hint, .architect .count, .architect .deadline { font-size: 12px; color: var(--muted); }
+.architect .hint b { color: var(--text); font-weight: 500; }
+.architect .deadline { font-variant-numeric: tabular-nums; }
+.architect.done p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.loading .floor { color: var(--text); font-size: 15px; }
+.loading .inscription { color: var(--gold); font-style: italic; font-size: 14px; max-width: 520px; text-align: center; }

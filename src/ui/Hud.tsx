@@ -23,7 +23,7 @@ export function Hud(props: Props) {
     <div className="hud">
       <div className="hud-top">
         <div className="wave-chip">
-          Level {props.levelIndex} · {props.themeLabel} · Wave {props.wave}/{props.wavesPerLevel}
+          Floor {props.levelIndex} · {props.themeLabel} · Wave {props.wave}/{props.wavesPerLevel}
         </div>
         {props.boss && (
           <>
@@ -61,7 +61,7 @@ export function Hud(props: Props) {
         <div className="forge-banner">
           <span className="pulse" />
           <span>
-            Level {props.forging.index} is being forged
+            Floor {props.forging.index} is being forged
             {props.forging.theme !== "unforged" ? ` — ${props.forging.theme}` : ""}
           </span>
           <span className="stage">

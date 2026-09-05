@@ -10,6 +10,40 @@ import { Ladder } from "./ui/Ladder";
 
 type Phase = "ladder" | "loading" | "playing" | "ended";
 
+interface RunResult {
+  cleared: boolean;
+  /** Was first to clear it, so the monument above is theirs. */
+  first: boolean;
+  /** The floor above is theirs to write — the architect's desk opens. */
+  canWrite: boolean;
+  levelIndex: number;
+  score: number;
+  timeSeconds: number;
+  message: string | null;
+  /** When the tower forges the next floor without its architect. */
+  deadline: number | null;
+}
+
+/** How long the first clearer has to write the next floor before it forges itself. */
+const ARCHITECT_SECONDS = 120;
+
+// ?preview=architect opens straight onto the architect's desk so the screen
+// can be styled and rehearsed without clearing a floor first.
+const PREVIEW = new URLSearchParams(location.search).get("preview");
+const PREVIEW_RESULT: RunResult | null =
+  PREVIEW === "architect"
+    ? {
+        cleared: true,
+        first: true,
+        canWrite: true,
+        levelIndex: 4,
+        score: 1480,
+        timeSeconds: 203,
+        message: null,
+        deadline: Date.now() + ARCHITECT_SECONDS * 1000,
+      }
+    : null;
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
@@ -19,7 +53,7 @@ export default function App() {
   const ladderRef = useRef(ladder);
   ladderRef.current = ladder;
 
-  const [phase, setPhase] = useState<Phase>("ladder");
+  const [phase, setPhase] = useState<Phase>(PREVIEW_RESULT ? "ended" : "ladder");
   const [ready, setReady] = useState(false);
   const [current, setCurrent] = useState<LevelRecord | null>(null);
   const [loadStage, setLoadStage] = useState("Preparing");
@@ -30,13 +64,7 @@ export default function App() {
   const [boss, setBoss] = useState<{ hp: number; maxHp: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [offers, setOffers] = useState<CardOffer[] | null>(null);
-  const [result, setResult] = useState<{
-    cleared: boolean;
-    levelIndex: number;
-    score: number;
-    timeSeconds: number;
-    message: string | null;
-  } | null>(null);
+  const [result, setResult] = useState<RunResult | null>(PREVIEW_RESULT);
   const [now, setNow] = useState(Date.now());
   const [runs, setRuns] = useState<RunRow[]>([]);
 
@@ -78,41 +106,35 @@ export default function App() {
       game.bus.on("loading", (l) => setLoadStage(l.stage));
       game.bus.on("levelup", (e) => setOffers(e.offers));
 
-      game.bus.on("wave", (w) => {
-        setWave(w);
-        // The forge starts the moment the first player reaches the boss, so the
-        // ~5 minute generation lands about when someone finishes the level.
-        if (w.wave >= w.wavesPerLevel && currentRef.current) {
-          ladderRef.current.reachedBoss(currentRef.current.index);
-        }
-      });
+      game.bus.on("wave", setWave);
 
       game.bus.on("pick", (e) => {
         if (currentRef.current) ladderRef.current.recordPick(currentRef.current.index, e.tag);
       });
 
       game.bus.on("clear", async (e) => {
-        setResult({ ...e, cleared: true, message: null });
+        setResult({ ...e, cleared: true, first: false, canWrite: false, message: null, deadline: null });
         setPhase("ended");
-        const owner = await ladderRef.current.clearLevel(e.levelIndex, e.score, e.timeSeconds);
+        const res = await ladderRef.current.clearLevel(e.levelIndex, e.score, e.timeSeconds);
         void ladderRef.current.leaderboard(e.levelIndex).then(setRuns);
         setResult((r) =>
           r
             ? {
                 ...r,
+                first: res.first,
+                canWrite: res.canWrite,
+                deadline: res.canWrite ? Date.now() + ARCHITECT_SECONDS * 1000 : null,
                 message:
-                  owner === ladderRef.current.user
-                    ? `You reached the frontier first. Level ${e.levelIndex + 1} carries your monument.`
-                    : owner
-                      ? `${owner} got here first — you are on the plaque of level ${e.levelIndex + 1}.`
-                      : null,
+                  !res.first && res.forgedBy
+                    ? `${res.forgedBy} got here first — you're on the plaque of floor ${e.levelIndex + 1}.`
+                    : null,
               }
             : r,
         );
       });
 
       game.bus.on("death", (e) => {
-        setResult({ ...e, cleared: false, message: null });
+        setResult({ ...e, cleared: false, first: false, canWrite: false, message: null, deadline: null });
         setPhase("ended");
         ladderRef.current.recordDeath(e.levelIndex, e.score, e.timeSeconds);
         void ladderRef.current.leaderboard(e.levelIndex).then(setRuns);
@@ -144,6 +166,7 @@ export default function App() {
       monumentUrl: level.monumentUrl,
       forgedBy: level.forgedBy,
       coForgers: level.coForgers,
+      message: level.message,
       yOffset: level.yOffset,
       scale: level.scale,
       composition: level.composition,
@@ -164,6 +187,15 @@ export default function App() {
   }, []);
 
   const forge = useCallback((tag: ThemeTag) => ladder.forgeNow(tag), [ladder]);
+
+  const describe = useCallback(
+    (prompt: string, message: string) => {
+      if (result) ladder.describeLevel(result.levelIndex + 1, prompt, message);
+    },
+    [ladder, result],
+  );
+
+  const clearedLevel = result ? ladder.levels.find((l) => l.index === result.levelIndex) : undefined;
 
   // While you fight, the next rung is being built from the room's votes.
   const forging = (() => {
@@ -202,9 +234,17 @@ export default function App() {
 
       {offers && <Cards offers={offers} onPick={pick} />}
 
-      {phase === "loading" && (
+      {phase === "loading" && current && (
         <div className="loading">
           <div className="title">Tower of Babel</div>
+          <div className="floor">
+            Floor {current.index} · {current.prompt ?? current.theme}
+          </div>
+          {current.message && current.forgedBy && (
+            <div className="inscription">
+              “{current.message}” — {current.forgedBy}
+            </div>
+          )}
           <div>{loadStage}…</div>
         </div>
       )}
@@ -217,6 +257,7 @@ export default function App() {
           now={now}
           shared={ladder.shared}
           user={ladder.user}
+          onRename={ladder.rename}
           onForge={forge}
         />
       )}
@@ -224,12 +265,18 @@ export default function App() {
       {phase === "ended" && result && (
         <ClearScreen
           cleared={result.cleared}
+          first={result.first}
+          canWrite={result.canWrite}
+          runs={runs}
+          user={ladder.user}
           levelIndex={result.levelIndex}
           score={result.score}
           timeSeconds={result.timeSeconds}
           message={result.message}
-          runs={runs}
-          user={ladder.user}
+          tally={clearedLevel?.tally ?? {}}
+          deadline={result.deadline}
+          now={now}
+          onForge={describe}
           onRetry={() => current && play(current)}
           onLadder={toLadder}
         />

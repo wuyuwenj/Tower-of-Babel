@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { compose, CREATURE_SUFFIX } from "./composer";
+import { compose, composeFromPrompt, CREATURE_SUFFIX } from "./composer";
 import { enrich } from "./enrich";
 import * as mint from "./mint";
 
@@ -40,9 +40,16 @@ export const generate = internalAction({
       const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
       if (!level) return;
 
-      // 1. Compose (deterministic, instant) then optionally reword (best effort).
-      const base = compose(level.tally);
-      const spec = await enrich(base, level.tally);
+      // 1. Compose, then optionally reword (OpenAI, best-effort).
+      //
+      // A floor its architect wrote goes to the world model in their own words;
+      // one nobody wrote is composed from what the room voted for. Either way
+      // the waves, cards and creature archetypes come from the fixed table.
+      const written = Boolean(level.prompt);
+      const base = written
+        ? composeFromPrompt(level.prompt as string, level.tally)
+        : compose(level.tally);
+      const spec = await enrich(base, level.tally, { keepWorldPrompt: written });
 
       await ctx.runMutation(internal.levels.applyComposition, {
         levelId,

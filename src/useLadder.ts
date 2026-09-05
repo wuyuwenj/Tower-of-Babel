@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConvexClient } from "convex/browser";
 import type { ThemeTag } from "./game/balance";
 import { SEED_LEVELS, type LevelRecord, type LevelStatus } from "./levels";
-import { playerName } from "./player-id";
+import { playerName, setPlayerName } from "./player-id";
 
 const CONVEX_URL = import.meta.env.VITE_CONVEX_URL as string | undefined;
 
@@ -19,9 +19,11 @@ export interface LadderApi {
   maxCleared: number;
   shared: boolean;
   user: string;
+  rename: (name: string) => void;
   recordPick: (levelIndex: number, tag: ThemeTag) => void;
-  reachedBoss: (levelIndex: number) => void;
-  clearLevel: (levelIndex: number, score: number, timeSeconds: number) => Promise<string | null>;
+  clearLevel: (levelIndex: number, score: number, timeSeconds: number) => Promise<ClearResult>;
+  /** The architect's answer: what the next floor is, and what it says. */
+  describeLevel: (levelIndex: number, prompt: string, message: string) => void;
   recordDeath: (levelIndex: number, score: number, timeSeconds: number) => void;
   forgeNow: (tag: ThemeTag) => void;
   leaderboard: (levelIndex: number) => Promise<RunRow[]>;
@@ -31,6 +33,15 @@ export interface RunRow {
   user: string;
   score: number;
   timeSeconds: number;
+}
+
+export interface ClearResult {
+  /** This player was the first to clear the frontier, so the monument is theirs. */
+  first: boolean;
+  /** Whether the next floor is theirs to write — the architect's desk opens. */
+  canWrite: boolean;
+  /** Who got there first, if someone else did. */
+  forgedBy: string | null;
 }
 
 let client: ConvexClient | null = null;
@@ -47,9 +58,11 @@ const fn = (name: string) => name as any;
 
 export function useLadder(): LadderApi {
   const convex = useMemo(getClient, []);
-  const user = useMemo(playerName, []);
+  const [user, setUser] = useState(playerName);
 
   const [levels, setLevels] = useState<LevelRecord[]>(SEED_LEVELS);
+  const levelsRef = useRef(levels);
+  levelsRef.current = levels;
   const [maxCleared, setMaxCleared] = useState(0);
 
   // --- shared mode --------------------------------------------------------
@@ -70,6 +83,11 @@ export function useLadder(): LadderApi {
     };
   }, [convex, user]);
 
+  const rename = useCallback((name: string) => {
+    setPlayerName(name);
+    setUser(playerName());
+  }, []);
+
   const recordPick = useCallback(
     (levelIndex: number, tag: ThemeTag) => {
       if (convex) {
@@ -88,18 +106,20 @@ export function useLadder(): LadderApi {
     [convex],
   );
 
-  const reachedBoss = useCallback(
-    (levelIndex: number) => {
-      if (!convex) return;
-      convex.mutation(fn("levels:reachedBoss"), { levelIndex }).catch(() => {});
-    },
-    [convex],
-  );
-
   const clearLevel = useCallback(
-    async (levelIndex: number, score: number, timeSeconds: number) => {
+    async (levelIndex: number, score: number, timeSeconds: number): Promise<ClearResult> => {
       setMaxCleared((m) => Math.max(m, levelIndex));
-      if (!convex) return null;
+      if (!convex) {
+        // Offline, you are the only climber: clearing the top floor makes you
+        // its architect, so the whole loop is demoable without a network.
+        const above = levelsRef.current.find((l) => l.index === levelIndex + 1);
+        if (!above) return { first: true, canWrite: true, forgedBy: user };
+        return {
+          first: false,
+          canWrite: above.forgedBy === user && above.status === "awaiting",
+          forgedBy: above.forgedBy,
+        };
+      }
       try {
         const res = await convex.mutation(fn("levels:clearLevel"), {
           levelIndex,
@@ -107,10 +127,50 @@ export function useLadder(): LadderApi {
           score,
           timeSeconds,
         });
-        return res?.first ? user : (res?.forgedBy ?? null);
+        return {
+          first: Boolean(res?.first),
+          canWrite: Boolean(res?.canWrite),
+          forgedBy: res?.forgedBy ?? null,
+        };
       } catch {
-        return null;
+        return { first: false, canWrite: false, forgedBy: null };
       }
+    },
+    [convex, user],
+  );
+
+  const describeLevel = useCallback(
+    (levelIndex: number, prompt: string, message: string) => {
+      if (convex) {
+        convex
+          .mutation(fn("levels:describeLevel"), {
+            levelIndex,
+            user,
+            prompt,
+            message: message || undefined,
+          })
+          .catch(() => {});
+        return;
+      }
+      setLevels((prev) =>
+        prev.some((l) => l.index === levelIndex)
+          ? prev
+          : [
+              ...prev,
+              {
+                ...SEED_LEVELS[0],
+                index: levelIndex,
+                theme: prompt,
+                prompt,
+                message: message || null,
+                status: "awaiting",
+                forgedBy: user,
+                coForgers: [],
+                tally: {},
+                forgeStartedAt: null,
+              },
+            ],
+      );
     },
     [convex, user],
   );
@@ -148,9 +208,10 @@ export function useLadder(): LadderApi {
     maxCleared,
     shared: Boolean(convex),
     user,
+    rename,
     recordPick,
-    reachedBoss,
     clearLevel,
+    describeLevel,
     recordDeath,
     forgeNow,
     leaderboard,
@@ -175,5 +236,7 @@ function toRecord(row: any): LevelRecord {
     coForgers: row.coForgers ?? [],
     tally: row.tally ?? {},
     forgeStartedAt: row.forgeStartedAt ?? null,
+    prompt: row.prompt ?? null,
+    message: row.message ?? null,
   };
 }

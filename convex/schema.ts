@@ -30,6 +30,8 @@ export const cardSkin = v.object({
 });
 
 export const levelStatus = v.union(
+  // Cleared first, waiting for its architect to say what it is.
+  v.literal("awaiting"),
   v.literal("forging:composing"),
   v.literal("forging:world"),
   v.literal("forging:creatures"),
@@ -47,6 +49,11 @@ export default defineSchema({
 
     // What the room voted for while this level's predecessor was the frontier.
     tally: v.record(v.string(), v.number()),
+
+    // What this floor's architect typed, and the message they left on its
+    // ground for everyone who climbs it. Absent on seed and vote-forged rungs.
+    prompt: v.optional(v.string()),
+    message: v.optional(v.string()),
 
     // Prompts the composer produced (kept so a failed forge can be retried).
     worldPrompt: v.optional(v.string()),
