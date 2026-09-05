@@ -63,7 +63,7 @@ export function Hud(props: Props) {
             Reset
           </button>
         </div>
-        <div style={{ marginTop: 8, opacity: 0.6 }}>WASD move · Q/E turn</div>
+        <div style={{ marginTop: 8, opacity: 0.6 }}>WASD move · Q/E turn · ` floor</div>
       </div>
     </div>
   );

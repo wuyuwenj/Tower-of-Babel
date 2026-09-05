@@ -57,8 +57,14 @@ export class Game {
 
   static async create(canvas: HTMLCanvasElement): Promise<Game> {
     const world = await World.create(canvas);
-    return new Game(world);
+    const game = new Game(world);
+    window.addEventListener("keydown", game.onDebugKey);
+    return game;
   }
+
+  private onDebugKey = (e: KeyboardEvent) => {
+    if (e.code === "Backquote") this.world.toggleWireframe();
+  };
 
   async loadLevel(spec: LevelSpec): Promise<void> {
     this.paused = true;
@@ -243,6 +249,7 @@ export class Game {
   }
 
   dispose(): void {
+    window.removeEventListener("keydown", this.onDebugKey);
     cancelAnimationFrame(this.raf);
     this.running = false;
     this.combat.dispose();

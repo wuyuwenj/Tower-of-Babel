@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { ARENA_RADIUS } from "./balance";
+import { TERRAIN_GRID, sampleTerrain, terrainWireframe, type Terrain } from "./terrain";
 
 let rapierReady: Promise<void> | null = null;
 function initRapier(): Promise<void> {
@@ -31,6 +32,8 @@ export class World {
   private splat: SplatMesh | null = null;
   private groundBody: RAPIER.RigidBody | null = null;
   private groundColliders: RAPIER.Collider[] = [];
+  private wireframe: THREE.LineSegments | null = null;
+  private terrain: Terrain | null = null;
   private readonly downRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
   constructor(canvas: HTMLCanvasElement, physics: RAPIER.World) {
@@ -75,28 +78,83 @@ export class World {
   async load(spec: WorldSpec, onStage?: (stage: string) => void): Promise<void> {
     this.unloadWorldGeometry();
 
-    onStage?.("Building ground");
-    if (spec.colliderUrl) {
-      try {
-        await this.loadColliderMesh(spec.colliderUrl);
-      } catch (err) {
-        console.warn("collider load failed, using flat ground", err);
-        this.buildFlatGround();
-      }
-    } else {
-      this.buildFlatGround();
-    }
-
     onStage?.("Streaming world");
+    const flipped = spec.flip !== false;
     const splat = new SplatMesh({ url: spec.splatUrl });
-    if (spec.flip !== false) splat.quaternion.set(1, 0, 0, 0);
-    const scale = spec.scale ?? 1;
-    splat.scale.setScalar(scale);
-    splat.position.y = spec.yOffset ?? 0;
+    if (flipped) splat.quaternion.set(1, 0, 0, 0);
+    splat.scale.setScalar(spec.scale ?? 1);
     this.scene.add(splat);
     this.splat = splat;
     await splat.initialized;
+
+    // Generated worlds arrive in arbitrary vertical alignment, so measure the
+    // floor from the splat cloud itself rather than hand-tuning each level.
+    onStage?.("Reading the ground");
+    const terrain = sampleTerrain(splat, flipped);
+    this.terrain = terrain.filled ? terrain : null;
+    splat.position.y = spec.yOffset ?? (terrain.filled ? terrain.yOffset : 0);
+
+    onStage?.("Building ground");
+    if (spec.colliderUrl) {
+      try {
+        await this.loadColliderMesh(spec.colliderUrl, splat.position.y);
+      } catch (err) {
+        console.warn("collider load failed, falling back to sampled terrain", err);
+        this.buildSampledGround();
+      }
+    } else {
+      this.buildSampledGround();
+    }
+
     onStage?.("Ready");
+  }
+
+  /** Toggleable debug view of the floor the physics is actually using. */
+  toggleWireframe(): void {
+    if (this.wireframe) {
+      this.scene.remove(this.wireframe);
+      this.wireframe.geometry.dispose();
+      this.wireframe = null;
+      return;
+    }
+    if (!this.terrain) return;
+    this.wireframe = terrainWireframe(this.terrain);
+    this.scene.add(this.wireframe);
+  }
+
+  /**
+   * Build collision from the splat cloud when the world shipped without a
+   * collider mesh. A Rapier heightfield over the play area is enough for a
+   * top-down survivors game: the player and 300 enemies just need a floor.
+   */
+  private buildSampledGround(): void {
+    const terrain = this.terrain;
+    if (!terrain) {
+      this.buildFlatGround();
+      return;
+    }
+
+    const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.groundBody = body;
+
+    const n = TERRAIN_GRID;
+    // Rapier reads heightfield data column-major; our grid is row-major.
+    const heights = new Float32Array(n * n);
+    for (let z = 0; z < n; z++) {
+      for (let x = 0; x < n; x++) heights[x * n + z] = terrain.heights[z * n + x];
+    }
+
+    const desc = RAPIER.ColliderDesc.heightfield(n - 1, n - 1, heights, {
+      x: terrain.extent * 2,
+      y: 1,
+      z: terrain.extent * 2,
+    });
+    this.groundColliders.push(this.physics.createCollider(desc, body));
+
+    // A skirt underneath, so nothing can fall out of the world at the edges.
+    const skirt = RAPIER.ColliderDesc.cuboid(terrain.extent * 3, 0.5, terrain.extent * 3)
+      .setTranslation(0, -14, 0);
+    this.groundColliders.push(this.physics.createCollider(skirt, body));
   }
 
   private buildFlatGround(): void {
@@ -107,8 +165,12 @@ export class World {
     this.groundBody = body;
   }
 
-  private async loadColliderMesh(url: string): Promise<void> {
+  private async loadColliderMesh(url: string, yOffset: number): Promise<void> {
     const gltf = await new GLTFLoader().loadAsync(url);
+    // The collider ships in the splat's own frame, so it needs the same
+    // flip and vertical alignment the splat got.
+    gltf.scene.rotation.x = Math.PI;
+    gltf.scene.position.y = yOffset;
     const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     this.groundBody = body;
 
@@ -135,6 +197,12 @@ export class World {
   }
 
   private unloadWorldGeometry(): void {
+    if (this.wireframe) {
+      this.scene.remove(this.wireframe);
+      this.wireframe.geometry.dispose();
+      this.wireframe = null;
+    }
+    this.terrain = null;
     if (this.splat) {
       this.scene.remove(this.splat);
       this.splat.dispose?.();
