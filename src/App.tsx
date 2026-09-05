@@ -122,6 +122,8 @@ export default function App() {
       colliderUrl: level.colliderUrl,
       enemyUrl: level.enemyUrl,
       monumentUrl: level.monumentUrl,
+      forgedBy: level.forgedBy,
+      coForgers: level.coForgers,
       yOffset: level.yOffset,
       scale: level.scale,
       composition: level.composition,

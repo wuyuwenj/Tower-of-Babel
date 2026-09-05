@@ -54,40 +54,65 @@ export class Enemies {
   private dummy = new THREE.Object3D();
   private world: World;
   private themeColor = new THREE.Color(0xffffff);
+  private generated = false;
 
   constructor(world: World) {
     this.world = world;
     for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
+      this.build(archetype, defaultGeometry(archetype), defaultMaterial());
       const cap = CAPACITY[archetype];
-      const geom =
-        archetype === "boss"
-          ? new THREE.IcosahedronGeometry(0.62, 1)
-          : archetype === "tank"
-            ? new THREE.BoxGeometry(0.9, 1.1, 0.9)
-            : new THREE.ConeGeometry(0.42, 1.05, 6);
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.65,
-        metalness: 0.1,
-      });
-      const mesh = new THREE.InstancedMesh(geom, mat, cap);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.count = cap;
-      mesh.frustumCulled = false;
-      const colors = new Float32Array(cap * 3).fill(1);
-      mesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
-      // Park every instance out of sight until it is spawned.
-      this.dummy.position.set(0, -999, 0);
-      this.dummy.updateMatrix();
-      for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, this.dummy.matrix);
-      mesh.instanceMatrix.needsUpdate = true;
-      world.scene.add(mesh);
-      this.meshes.set(archetype, mesh);
       this.free.set(
         archetype,
         Array.from({ length: cap }, (_, i) => cap - 1 - i),
       );
     }
+  }
+
+  private build(archetype: Archetype, geom: THREE.BufferGeometry, mat: THREE.Material): void {
+    const old = this.meshes.get(archetype);
+    if (old) {
+      this.world.scene.remove(old);
+      old.geometry.dispose();
+      (old.material as THREE.Material).dispose();
+    }
+
+    const cap = CAPACITY[archetype];
+    const mesh = new THREE.InstancedMesh(geom, mat, cap);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.count = cap;
+    mesh.frustumCulled = false;
+    const colors = new Float32Array(cap * 3).fill(1);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+    // Park every instance out of sight until it is spawned.
+    this.dummy.position.set(0, -999, 0);
+    this.dummy.scale.setScalar(1);
+    this.dummy.rotation.set(0, 0, 0);
+    this.dummy.updateMatrix();
+    for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, this.dummy.matrix);
+    mesh.instanceMatrix.needsUpdate = true;
+    this.world.scene.add(mesh);
+    this.meshes.set(archetype, mesh);
+  }
+
+  /**
+   * Swap in a Tripo-generated creature. Called at level load, when nothing is
+   * alive, so rebuilding the instanced meshes is safe.
+   * `generated` geometry is already normalized to 1 unit tall and origin-on-floor.
+   */
+  setModel(geometry: THREE.BufferGeometry, material: THREE.Material): void {
+    for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
+      this.build(archetype, geometry.clone(), material.clone());
+    }
+    this.generated = true;
+  }
+
+  /** Restore the stock shapes (used when a level has no generated creature). */
+  resetModel(): void {
+    if (!this.generated) return;
+    for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
+      this.build(archetype, defaultGeometry(archetype), defaultMaterial());
+    }
+    this.generated = false;
   }
 
   setTheme(color: number): void {
@@ -262,7 +287,7 @@ export class Enemies {
     for (const e of this.list) {
       const mesh = this.meshes.get(e.archetype)!;
       const stats = ARCHETYPES[e.archetype];
-      this.dummy.position.set(e.x, e.y + stats.scale * 0.55, e.z);
+      this.dummy.position.set(e.x, e.y + (this.generated ? 0 : stats.scale * 0.55), e.z);
       this.dummy.rotation.set(0, Math.atan2(e.x, e.z), 0);
       this.dummy.scale.setScalar(stats.scale);
       this.dummy.updateMatrix();
@@ -308,6 +333,16 @@ export class Enemies {
     }
     this.meshes.clear();
   }
+}
+
+function defaultGeometry(archetype: Archetype): THREE.BufferGeometry {
+  if (archetype === "boss") return new THREE.IcosahedronGeometry(0.62, 1);
+  if (archetype === "tank") return new THREE.BoxGeometry(0.9, 1.1, 0.9);
+  return new THREE.ConeGeometry(0.42, 1.05, 6);
+}
+
+function defaultMaterial(): THREE.Material {
+  return new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0.1 });
 }
 
 export type { Enemy };

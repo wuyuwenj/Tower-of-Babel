@@ -5,6 +5,8 @@ import { applyCard, rollOffers, type CardOffer, type CardSkin } from "./cards";
 import { Combat } from "./combat";
 import { Director } from "./director";
 import { Enemies } from "./enemies";
+import { loadInstanceable } from "./models";
+import { buildMonument } from "./monument";
 import { Player } from "./player";
 import { Waves } from "./waves";
 import { World, type WorldSpec } from "./world";
@@ -13,6 +15,8 @@ export interface LevelSpec extends WorldSpec {
   levelIndex: number;
   enemyUrl?: string | null;
   monumentUrl?: string | null;
+  forgedBy?: string | null;
+  coForgers?: string[];
   themeTag: ThemeTag;
   composition: Archetype[][] | null;
   cardSkins: CardSkin[] | null;
@@ -41,6 +45,7 @@ export class Game {
   private raf = 0;
   private fpsAccum = 0;
   private fpsFrames = 0;
+  private monument: THREE.Group | null = null;
 
   private constructor(world: World) {
     this.world = world;
@@ -67,6 +72,33 @@ export class Game {
     const color = THEME_COLOR[spec.themeTag] ?? 0xffffff;
     this.enemies.setTheme(color);
     this.combat.setThemeColor(color);
+
+    // Generated creature, if this level has one. Falls back to stock shapes.
+    if (spec.enemyUrl) {
+      this.bus.emit("loading", { stage: "Loading creatures", done: false });
+      const model = await loadInstanceable(spec.enemyUrl, 1.0);
+      if (model) this.enemies.setModel(model.geometry, model.material);
+      else this.enemies.resetModel();
+    } else {
+      this.enemies.resetModel();
+    }
+
+    // The monument to whoever forged this level, standing beside the spawn.
+    if (this.monument) {
+      this.world.scene.remove(this.monument);
+      this.monument = null;
+    }
+    if (spec.monumentUrl || spec.forgedBy) {
+      const monument = await buildMonument(
+        spec.monumentUrl ?? null,
+        spec.forgedBy ?? null,
+        spec.coForgers ?? [],
+        color,
+      );
+      monument.position.set(6, this.world.groundHeight(6, -6), -6);
+      this.world.scene.add(monument);
+      this.monument = monument;
+    }
 
     this.levelIndex = spec.levelIndex;
     this.cardSkins = spec.cardSkins;
