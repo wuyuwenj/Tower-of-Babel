@@ -4,7 +4,9 @@ import { internal } from "./_generated/api";
 import { archetype, cardSkin, levelStatus, themeTag } from "./schema";
 import { THEME_TAGS } from "./composer";
 
-const BASE = "https://storage.googleapis.com/forge-dev-public/hackathon-260227";
+// Seed worlds are served from /public/worlds when cached (npm run fetch:worlds)
+// and fall back to the CDN at load time. See src/game/net.ts.
+const BASE = "/worlds";
 
 /**
  * A forge that has not moved in this long is treated as dead (backend restart,

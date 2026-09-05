@@ -4,6 +4,7 @@ import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { ARENA_RADIUS } from "./balance";
 import { TERRAIN_GRID, sampleTerrain, terrainWireframe, type Terrain } from "./terrain";
+import { resolveWorldUrl } from "./net";
 
 let rapierReady: Promise<void> | null = null;
 function initRapier(): Promise<void> {
@@ -78,9 +79,20 @@ export class World {
   async load(spec: WorldSpec, onStage?: (stage: string) => void): Promise<void> {
     this.unloadWorldGeometry();
 
+    // ?nosplat=1 skips the splat entirely: a fast path for testing the game
+    // loop, and a usable fallback on machines that cannot render splats.
+    if (new URLSearchParams(location.search).get("nosplat")) {
+      onStage?.("Building ground");
+      this.buildFlatGround();
+      this.scene.add(gridHelper());
+      onStage?.("Ready");
+      return;
+    }
+
     onStage?.("Streaming world");
     const flipped = spec.flip !== false;
-    const splat = new SplatMesh({ url: spec.splatUrl });
+    const splatUrl = await resolveWorldUrl(spec.splatUrl);
+    const splat = new SplatMesh({ url: splatUrl });
     if (flipped) splat.quaternion.set(1, 0, 0, 0);
     splat.scale.setScalar(spec.scale ?? 1);
     this.scene.add(splat);
@@ -235,6 +247,12 @@ export class World {
     this.renderer.dispose();
     this.physics.free();
   }
+}
+
+function gridHelper(): THREE.GridHelper {
+  const grid = new THREE.GridHelper(ARENA_RADIUS * 2, 34, 0x39ff9a, 0x1d5c3c);
+  grid.position.y = 0.02;
+  return grid;
 }
 
 export { RAPIER };

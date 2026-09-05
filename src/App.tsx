@@ -20,6 +20,7 @@ export default function App() {
   ladderRef.current = ladder;
 
   const [phase, setPhase] = useState<Phase>("ladder");
+  const [ready, setReady] = useState(false);
   const [current, setCurrent] = useState<LevelRecord | null>(null);
   const [loadStage, setLoadStage] = useState("Preparing");
 
@@ -43,6 +44,20 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  // Deep link: ?level=3 drops straight into a rung. Handy for demos and for
+  // screenshotting a specific world without clicking through the ladder.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current || !ready || ladder.levels.length === 0) return;
+    const wanted = Number(new URLSearchParams(location.search).get("level"));
+    if (!wanted) return;
+    const level = ladder.levels.find((l) => l.index === wanted);
+    if (!level) return;
+    autoStarted.current = true;
+    void play(level);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, ladder.levels]);
+
   useEffect(() => {
     let disposed = false;
     if (!canvasRef.current) return;
@@ -53,6 +68,7 @@ export default function App() {
         return;
       }
       gameRef.current = game;
+      setReady(true);
 
       game.bus.on("hp", setHp);
       game.bus.on("xp", setXp);

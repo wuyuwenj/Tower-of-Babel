@@ -44,6 +44,17 @@ export function isForging(status: LevelStatus): boolean {
 const BASE = "https://storage.googleapis.com/forge-dev-public/hackathon-260227";
 
 /**
+ * Prefer a locally cached copy of a seed world when one exists
+ * (`npm run fetch:worlds`). Venue wifi is not something a two-minute demo
+ * should depend on, and a local load is roughly ten times faster.
+ */
+function seedWorld(file: string): string {
+  return `/worlds/${file}`;
+}
+
+export const REMOTE_SEED_BASE = BASE;
+
+/**
  * Seed rungs so the tower is climbable before anything has been forged.
  * Ordered smallest-download first so a demo never waits on a 300 MB splat.
  */
@@ -52,7 +63,7 @@ export const SEED_LEVELS: LevelRecord[] = [
     index: 1,
     theme: "haunted house",
     themeTag: "void",
-    splatUrl: `${BASE}/haunted-house.spz`,
+    splatUrl: seedWorld("haunted-house.spz"),
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
@@ -70,7 +81,7 @@ export const SEED_LEVELS: LevelRecord[] = [
     index: 2,
     theme: "cozy ship",
     themeTag: "stone",
-    splatUrl: `${BASE}/cozy_ship.spz`,
+    splatUrl: seedWorld("cozy_ship.spz"),
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
@@ -88,7 +99,7 @@ export const SEED_LEVELS: LevelRecord[] = [
     index: 3,
     theme: "cozy cottage",
     themeTag: "nature",
-    splatUrl: `${BASE}/cozy_cottage.spz`,
+    splatUrl: seedWorld("cozy_cottage.spz"),
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
@@ -106,7 +117,7 @@ export const SEED_LEVELS: LevelRecord[] = [
     index: 4,
     theme: "derelict spaceship",
     themeTag: "tech",
-    splatUrl: `${BASE}/cozy-spaceship_2.spz`,
+    splatUrl: seedWorld("cozy-spaceship_2.spz"),
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,

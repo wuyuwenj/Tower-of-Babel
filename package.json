@@ -1,5 +1,5 @@
 {
-  "name": "scaffold",
+  "name": "tower-of-babel",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "fetch:worlds": "bash scripts/fetch-worlds.sh"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
