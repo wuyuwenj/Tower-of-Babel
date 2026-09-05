@@ -1,0 +1,24 @@
+src/ui/Cards.tsx
+  s_085c243e369e11::t_2bc7e4a5ece427 2,14-27
+src/styles.css
+  s_085c243e369e11::t_2bc7e4a5ece427 312-317
+src/ui/SlotGlyph.tsx
+  s_085c243e369e11::t_3c85a138d7b354 1,33
+  s_085c243e369e11::t_2bc7e4a5ece427 2-32,34-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "faee702eae4d7d52abb37a1107059525662a6f7d",
+  "prompts": {},
+  "sessions": {
+    "s_085c243e369e11": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eb41aba5-98cf-4e23-a200-c698b4c371b2",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
