@@ -9,6 +9,19 @@ const CAM_HEIGHT = 13.5;
 const CAM_BACK = 12.5;
 const CAM_LERP = 6.5;
 
+// Jump tuning. Apex = JUMP_SPEED² / 2·GRAVITY ≈ 1.7 units, about one capsule
+// tall, airborne for ~0.7 s. Gravity is steeper than the world's so the hop
+// feels snappy rather than floaty.
+const GRAVITY = 26;
+const JUMP_SPEED = 9.5;
+const TERMINAL_VELOCITY = -30;
+/** Seconds after leaving an edge during which a jump still counts. */
+const COYOTE_TIME = 0.1;
+/** Seconds a Space press is remembered while waiting to land. */
+const JUMP_BUFFER = 0.12;
+/** Downward push while grounded, so slopes and autostep keep resolving. */
+const GROUND_STICK = 12;
+
 export class Player {
   readonly mesh: THREE.Group;
   stats: PlayerStats = { ...BASE_PLAYER };
@@ -25,6 +38,17 @@ export class Player {
   private camYaw = 0;
   private readonly camTarget = new THREE.Vector3();
   private readonly moveDir = new THREE.Vector3();
+
+  // Vertical state. Horizontal movement is direct; the jump is a velocity.
+  private vy = 0;
+  private grounded = true;
+  private sinceGrounded = 0;
+  private jumpBuffered = 0;
+  /** Height of the last ground we stood on; the camera follows this, not the hop. */
+  private groundY = 0;
+  private camAnchorY = 0;
+  /** Squash on landing and stretch in the air, purely cosmetic. */
+  private squash = 0;
 
   private world: World;
 
@@ -78,6 +102,11 @@ export class Player {
     this.keys.add(e.code);
     if (e.code === "KeyQ") this.camYaw += Math.PI / 8;
     if (e.code === "KeyE") this.camYaw -= Math.PI / 8;
+    if (e.code === "Space") {
+      // Buffered, so a press a few frames before landing still fires.
+      if (!e.repeat) this.jumpBuffered = JUMP_BUFFER;
+      e.preventDefault();
+    }
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
 
@@ -90,6 +119,14 @@ export class Player {
     this.hp = this.stats.maxHp;
     this.alive = true;
     this.keys.clear();
+    this.vy = 0;
+    this.grounded = true;
+    this.sinceGrounded = 0;
+    this.jumpBuffered = 0;
+    this.groundY = y;
+    this.camAnchorY = y;
+    this.squash = 0;
+    this.mesh.scale.setScalar(1);
   }
 
   setStats(stats: PlayerStats): void {
@@ -121,10 +158,23 @@ export class Player {
       this.facing.lerp(this.moveDir, Math.min(1, dt * 14)).normalize();
     }
 
+    // Jump: from the ground, or within a breath of having left it.
+    this.jumpBuffered = Math.max(0, this.jumpBuffered - dt);
+    if (this.jumpBuffered > 0 && (this.grounded || this.sinceGrounded < COYOTE_TIME)) {
+      this.vy = JUMP_SPEED;
+      this.grounded = false;
+      this.sinceGrounded = COYOTE_TIME;
+      this.jumpBuffered = 0;
+    }
+    if (!this.grounded) this.vy = Math.max(TERMINAL_VELOCITY, this.vy - GRAVITY * dt);
+
     const step = this.stats.speed * dt;
     const desired = {
       x: this.moveDir.x * step,
-      y: -12 * dt, // gravity, resolved by the character controller
+      // Grounded: a steady push down keeps slopes and steps resolving. Airborne:
+      // the jump's own velocity. Snap-to-ground only applies when this is ≤ 0,
+      // so it never swallows a take-off.
+      y: this.grounded ? -GROUND_STICK * dt : this.vy * dt,
       z: this.moveDir.z * step,
     };
 
@@ -133,9 +183,28 @@ export class Player {
     const t = this.body.translation();
     const next = { x: t.x + move.x, y: t.y + move.y, z: t.z + move.z };
 
+    // Head bump: if the ceiling ate most of the rise, stop rising.
+    if (this.vy > 0 && move.y < desired.y * 0.5) this.vy = 0;
+
+    // Rapier reports "grounded" for any move that started in contact with the
+    // floor, including the take-off frame itself. Trusting it would zero the
+    // jump 15 cm up, so a rising capsule is never grounded.
+    const wasGrounded = this.grounded;
+    this.grounded = this.vy <= 0 && this.controller.computedGrounded();
+    if (this.grounded) {
+      if (!wasGrounded) this.squash = Math.min(0.22, -this.vy / 55);
+      this.vy = 0;
+      this.sinceGrounded = 0;
+      this.groundY = next.y;
+    } else {
+      this.sinceGrounded += dt;
+    }
+
     // Never let the player fall out of a generated world.
     if (next.y < -25) {
       next.y = this.world.groundHeight(next.x, next.z) + CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS + 0.2;
+      this.vy = 0;
+      this.groundY = next.y;
     }
 
     this.body.setNextKinematicTranslation(next);
@@ -143,19 +212,27 @@ export class Player {
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = Math.atan2(this.facing.x, this.facing.z) + Math.PI;
 
+    // Stretch along the jump, squash on the landing, settle back to 1.
+    this.squash *= Math.max(0, 1 - dt * 12);
+    const stretch = THREE.MathUtils.clamp(this.vy / JUMP_SPEED, -1, 1) * 0.12;
+    this.mesh.scale.set(1 - stretch * 0.6 + this.squash * 0.7, 1 + stretch - this.squash, 1 - stretch * 0.6 + this.squash * 0.7);
+
     if (this.hp < this.stats.maxHp) {
       this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.regen * dt);
     }
   }
 
   updateCamera(camera: THREE.PerspectiveCamera, dt: number): void {
+    // Follow the ground under the player, not the player: a jump should read
+    // as the capsule leaving the frame's centre, not the whole world dipping.
+    this.camAnchorY += (this.groundY - this.camAnchorY) * Math.min(1, dt * 8);
     const offset = new THREE.Vector3(0, CAM_HEIGHT, CAM_BACK).applyAxisAngle(
       new THREE.Vector3(0, 1, 0),
       this.camYaw,
     );
-    this.camTarget.copy(this.position).add(offset);
+    this.camTarget.set(this.position.x, this.camAnchorY, this.position.z).add(offset);
     camera.position.lerp(this.camTarget, Math.min(1, dt * CAM_LERP));
-    camera.lookAt(this.position.x, this.position.y + 1.2, this.position.z);
+    camera.lookAt(this.position.x, this.camAnchorY + 1.2, this.position.z);
   }
 
   dispose(): void {
