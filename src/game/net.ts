@@ -11,6 +11,9 @@ export function resolveWorldUrl(url: string): Promise<string> {
   let hit = checked.get(url);
   if (!hit) {
     const remote = `${REMOTE_BASE}/${url.slice("/worlds/".length)}`;
+    // A dev server (and any SPA-rewriting host) answers an unknown path with
+    // index.html and a 200, so `ok` alone would hand the splat loader HTML to
+    // gunzip. Only a non-HTML 200 counts as the file being there.
     hit = fetch(url, { method: "HEAD" })
       .then((res) => (isCached(res) ? url : remote))
       .catch(() => remote);
