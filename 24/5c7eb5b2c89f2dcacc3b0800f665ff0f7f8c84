@@ -1,0 +1,19 @@
+scripts/arena-pano.mjs
+  s_281abf673eac41::t_f16c9fb53907c8 7,77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "245c7eb5b2c89f2dcacc3b0800f665ff0f7f8c84",
+  "prompts": {},
+  "sessions": {
+    "s_281abf673eac41": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d38ddf19-be3f-49fd-8eb3-0477f4ea8c60",
+        "model": "unknown"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
