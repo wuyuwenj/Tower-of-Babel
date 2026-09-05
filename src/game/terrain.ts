@@ -5,6 +5,13 @@ import { ARENA_RADIUS } from "./balance";
 const GRID = 64;
 /** Ignore splats this far above the local floor when sampling — ceilings, foliage. */
 const FLOOR_PERCENTILE = 0.12;
+/**
+ * Samples to visit regardless of cloud size. A seed world carries ~2.5M splats
+ * and a stitched one carries 24M; a fixed stride would make load time scale
+ * with the splat count for no extra accuracy — 150k points over a 64x64 grid
+ * is already ~36 samples a cell.
+ */
+const TARGET_SAMPLES = 150_000;
 
 export interface Terrain {
   /** Shift applied to the splat so its floor sits at y = 0. */
@@ -30,11 +37,19 @@ export function sampleTerrain(splat: SplatMesh, flipped: boolean): Terrain {
   const all: number[] = [];
 
   const sign = flipped ? -1 : 1;
+  // NB: SplatMesh.numSplats is a shader value, not a number. The real count
+  // lives on packedSplats; anything non-numeric must fall back to stride 1 or
+  // the modulo below silently rejects every splat.
+  const total = splat.packedSplats?.numSplats;
+  const stride =
+    typeof total === "number" && total > TARGET_SAMPLES
+      ? Math.floor(total / TARGET_SAMPLES)
+      : 1;
   let seen = 0;
 
   splat.forEachSplat((_index, center) => {
-    // Cheap stride: dense worlds have millions of splats and we only need shape.
-    if ((seen++ & 3) !== 0) return;
+    // Dense worlds carry millions of splats and we only need the shape.
+    if (seen++ % stride !== 0) return;
 
     const x = sign * center.x;
     const y = sign * center.y;
