@@ -20,9 +20,12 @@
 6. Death → back to ladder screen
 
 ## Ladder (must ship)
-- `levels` table: index, theme, prompt, splatUrl, colliderUrl, enemyUrl, monumentUrl, forgedBy, coForgers, status
-- Ladder screen: list of levels, frontier highlighted, "forging…" state live via subscription
-- `clearLevel` mutation: first commit creates level N+1 (status forging) + schedules forge action; losers land on plaque
+- `levels` table: index, theme, tally, prompt, splatUrl, colliderUrl, enemyUrl, monumentUrl, forgedBy, coForgers, status (forging:composing | forging:world | forging:creatures | sealed | ready | failed)
+- Ladder screen: list of levels, frontier highlighted, live theme tally + forge stage via subscription; dev "Forge" button
+- Theme = shared tally: every upgrade pick on the frontier level adds to `tally` (`recordPick` mutation)
+- Forge fires when the first frontier player reaches wave 3 (`reachedBoss` mutation: insert N+1 as forging if absent, snapshot tally → theme, schedule forge action)
+- Monument = first to clear (`clearLevel` mutation: set forgedBy if unset, append coForgers, sealed → ready)
+- Forged-but-uncleared level sits `sealed` on the ladder (visible, not enterable)
 - Checkpoints: player can start any level they've cleared (`progress.maxCleared`)
 
 ## Forge pipeline (must ship, pre-baked fallback)
