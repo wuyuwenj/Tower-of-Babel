@@ -10,6 +10,14 @@ const BASE = "https://api.mint.gg/v1";
 
 export type Preset = "fast" | "standard" | "production";
 
+export interface OperationState {
+  status: string;
+  done: boolean;
+  failed: boolean;
+  error?: string;
+  raw: Operation;
+}
+
 export interface WorldResult {
   splatUrl: string;
   colliderUrl?: string;
@@ -50,6 +58,57 @@ export async function startWorld(prompt: string, preset: Preset = "standard"): P
 export async function startModel(prompt: string, preset: Preset = "fast"): Promise<string> {
   const op = await start("models:generate", { prompt, preset, name: "Babel asset" });
   return op.id;
+}
+
+/**
+ * One non-blocking check of an operation.
+ *
+ * Convex actions have a hard duration limit, so the forge cannot sit in a poll
+ * loop for the ~15 minutes a world takes. It checks once, reschedules itself,
+ * and this returns just enough to decide which.
+ */
+export async function checkOperation(id: string): Promise<OperationState> {
+  const op = await call(`operations/${id}`);
+  const status = op.status ?? "unknown";
+
+  if (status === "billing_required") {
+    // generationMode "auto" still pauses when a charge needs confirming.
+    await call(`operations/${id}:resume`, { method: "POST", body: "{}" });
+    return { status, done: false, failed: false, raw: op };
+  }
+
+  return {
+    status,
+    done: status === "succeeded" || status === "partially_succeeded",
+    failed: status === "failed" || status === "canceled",
+    error: op.error?.message,
+    raw: op,
+  };
+}
+
+export function worldAssetsOf(op: Operation): WorldResult {
+  return readWorldAssets(op);
+}
+
+export function modelAssetsOf(op: Operation): ModelResult | null {
+  const assets = (op.assets ?? {}) as {
+    glbUrl?: string | null;
+    optimizedGlbUrl?: string | null;
+    fbxUrl?: string | null;
+    bounds?: { min?: number[]; max?: number[] } | null;
+  };
+  const glbUrl = assets.optimizedGlbUrl ?? assets.glbUrl;
+  if (!glbUrl) return null;
+  const min = assets.bounds?.min;
+  const max = assets.bounds?.max;
+  return {
+    glbUrl,
+    fbxUrl: assets.fbxUrl ?? undefined,
+    heightMeters:
+      Array.isArray(min) && Array.isArray(max) && min.length > 1 && max.length > 1
+        ? max[1] - min[1]
+        : undefined,
+  };
 }
 
 /** Read a finished world straight off the resource, bypassing its operation. */

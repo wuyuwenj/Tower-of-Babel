@@ -9,15 +9,28 @@ import * as mint from "./mint";
 
 const MARBLE = "https://api.worldlabs.ai/marble/v1";
 const TRIPO = "https://api.tripo3d.ai/v2/openapi";
+const FALLBACK_SPLAT = "/worlds/haunted-house.spz";
 
-const FALLBACK_SPLAT =
-  "https://storage.googleapis.com/forge-dev-public/hackathon-260227/haunted-house.spz";
+/** How often a pending generation is re-checked, and when we give up on it. */
+const POLL_SECONDS = 20;
+const WORLD_DEADLINE_MS = 30 * 60_000;
+const MODEL_DEADLINE_MS = 15 * 60_000;
 
 /**
- * Forges one level: theme tally -> prompts -> Marble world -> Tripo creatures.
+ * Forging a rung: theme tally -> prompts -> world -> creatures.
  *
- * Every external step is optional. A missing key or a failed call degrades to
- * a usable level rather than bricking the rung, because the ladder must stay
+ * The Mint path is a scheduled state machine rather than one long-running
+ * action. A world takes ~15 minutes to generate and a Convex action has a hard
+ * duration limit, so an action that sat in a poll loop was killed every time —
+ * Mint finished and billed the work while nothing was left holding the handle.
+ * Each step here makes one API call and reschedules itself.
+ *
+ * The alternate providers (World Labs, Tripo) stay inline: they are only
+ * reached when MINT_API_KEY is absent, and Tripo models finish inside a single
+ * action's budget.
+ *
+ * Every external step is optional. A missing key or a failed call degrades to a
+ * usable rung rather than bricking the ladder, because the tower has to stay
  * climbable during a live demo.
  */
 export const generate = internalAction({
@@ -27,7 +40,7 @@ export const generate = internalAction({
       const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
       if (!level) return;
 
-      // 1. Compose (deterministic) and optionally reword (OpenAI, best-effort).
+      // 1. Compose (deterministic, instant) then optionally reword (best effort).
       const base = compose(level.tally);
       const spec = await enrich(base, level.tally);
 
@@ -42,83 +55,197 @@ export const generate = internalAction({
         cardSkins: spec.cardSkins,
       });
 
-      // 2. The world. Resume an in-flight generation if a previous attempt
-      //    already started (and paid for) one.
-      const world = await generateWorld(spec.worldPrompt, level.providerWorldId, async (id) => {
+      // 2. The world. Mint hands off to the poller; anything else runs inline.
+      if (mint.hasMintKey()) {
+        const worldOp =
+          level.providerWorldId ?? (await mint.startWorld(spec.worldPrompt, "standard"));
         await ctx.runMutation(internal.levels.rememberProvider, {
           levelId,
-          providerWorldId: id,
+          providerWorldId: worldOp,
         });
-      });
+        await ctx.scheduler.runAfter(POLL_SECONDS * 1000, internal.forge.pollWorld, { levelId });
+        return;
+      }
+
+      const world = await generateWorldFallback(spec.worldPrompt);
       await ctx.runMutation(internal.levels.applyAssets, {
         levelId,
         splatUrl: world.splatUrl,
         colliderUrl: world.colliderUrl,
         status: "forging:creatures",
       });
-
-      // 3. What lives in it, generated in parallel. The creature carries the
-      // extra constraints because it gets instanced and normalized; the
-      // monument stands alone and is fine as composed.
-      const [enemyUrl, monumentUrl] = await Promise.all([
-        generateModel(spec.enemyPrompt + CREATURE_SUFFIX, level.providerEnemyId, async (id) => {
-          await ctx.runMutation(internal.levels.rememberProvider, {
-            levelId,
-            providerEnemyId: id,
-          });
-        }),
-        generateModel(spec.monumentPrompt, level.providerMonumentId, async (id) => {
-          await ctx.runMutation(internal.levels.rememberProvider, {
-            levelId,
-            providerMonumentId: id,
-          });
-        }),
-      ]);
-      await ctx.runMutation(internal.levels.applyAssets, {
-        levelId,
-        enemyUrl: enemyUrl ?? undefined,
-        monumentUrl: monumentUrl ?? undefined,
-      });
-
-      await ctx.runMutation(internal.levels.finishForge, { levelId });
+      await ctx.scheduler.runAfter(0, internal.forge.startCreatures, { levelId });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("forge failed:", message);
-      await ctx.runMutation(internal.levels.setStatus, {
-        levelId,
-        status: "failed",
-        error: message.slice(0, 400),
-      });
+      await fail(ctx, levelId, err);
     }
   },
 });
 
-// ---------------------------------------------------------------------------
+export const pollWorld = internalAction({
+  args: { levelId: v.id("levels") },
+  handler: async (ctx, { levelId }) => {
+    try {
+      const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
+      if (!level || !level.providerWorldId) return;
+      if (level.status !== "forging:world") return; // superseded or already done
+
+      const state = await mint.checkOperation(level.providerWorldId);
+      if (state.failed) throw new Error(`world generation ${state.status}: ${state.error ?? ""}`);
+
+      if (!state.done) {
+        if (Date.now() - (level.forgeStartedAt ?? 0) > WORLD_DEADLINE_MS) {
+          throw new Error(`world generation still ${state.status} after 30 minutes`);
+        }
+        await ctx.scheduler.runAfter(POLL_SECONDS * 1000, internal.forge.pollWorld, { levelId });
+        return;
+      }
+
+      const world = mint.worldAssetsOf(state.raw);
+      await ctx.runMutation(internal.levels.applyAssets, {
+        levelId,
+        splatUrl: world.splatUrl,
+        colliderUrl: world.colliderUrl,
+        status: "forging:creatures",
+      });
+      await ctx.scheduler.runAfter(0, internal.forge.startCreatures, { levelId });
+    } catch (err) {
+      await fail(ctx, levelId, err);
+    }
+  },
+});
+
+export const startCreatures = internalAction({
+  args: { levelId: v.id("levels") },
+  handler: async (ctx, { levelId }) => {
+    const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
+    if (!level) return;
+
+    // The creature carries extra constraints because it gets instanced and
+    // normalized; the monument stands alone and is fine as composed.
+    const enemyPrompt = (level.enemyPrompt ?? "") + CREATURE_SUFFIX;
+    const monumentPrompt = level.monumentPrompt ?? "";
+
+    if (mint.hasMintKey()) {
+      const enemy = level.providerEnemyId ?? (await startModelSafely(enemyPrompt));
+      const monument = level.providerMonumentId ?? (await startModelSafely(monumentPrompt));
+
+      if (!enemy && !monument) {
+        await ctx.runMutation(internal.levels.finishForge, { levelId });
+        return;
+      }
+
+      await ctx.runMutation(internal.levels.rememberProvider, {
+        levelId,
+        providerEnemyId: enemy ?? undefined,
+        providerMonumentId: monument ?? undefined,
+      });
+      await ctx.scheduler.runAfter(POLL_SECONDS * 1000, internal.forge.pollCreatures, { levelId });
+      return;
+    }
+
+    const [enemyUrl, monumentUrl] = await Promise.all([
+      generateModelFallback(enemyPrompt),
+      generateModelFallback(monumentPrompt),
+    ]);
+    await ctx.runMutation(internal.levels.applyAssets, {
+      levelId,
+      enemyUrl: enemyUrl ?? undefined,
+      monumentUrl: monumentUrl ?? undefined,
+    });
+    await ctx.runMutation(internal.levels.finishForge, { levelId });
+  },
+});
+
+export const pollCreatures = internalAction({
+  args: { levelId: v.id("levels") },
+  handler: async (ctx, { levelId }) => {
+    const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
+    if (!level || level.status !== "forging:creatures") return;
+
+    const [enemy, monument] = await Promise.all([
+      resolveModel(level.providerEnemyId),
+      resolveModel(level.providerMonumentId),
+    ]);
+
+    const stillWaiting = enemy === "pending" || monument === "pending";
+    const overdue = Date.now() - (level.forgeStartedAt ?? 0) > WORLD_DEADLINE_MS + MODEL_DEADLINE_MS;
+
+    if (stillWaiting && !overdue) {
+      await ctx.scheduler.runAfter(POLL_SECONDS * 1000, internal.forge.pollCreatures, { levelId });
+      return;
+    }
+
+    await ctx.runMutation(internal.levels.applyAssets, {
+      levelId,
+      enemyUrl: urlOrUndefined(enemy),
+      monumentUrl: urlOrUndefined(monument),
+    });
+    await ctx.runMutation(internal.levels.finishForge, { levelId });
+  },
+});
+
+/**
+ * Attach an already-generated Mint world to a rung.
+ *
+ * Recovers a forge whose action died after Mint had finished (and billed) the
+ * generation — the assets exist, nobody was left holding the handle.
+ */
+export const adopt = internalAction({
+  args: { levelId: v.id("levels"), worldId: v.string() },
+  handler: async (ctx, { levelId, worldId }) => {
+    try {
+      const world = await mint.fetchWorld(worldId);
+      await ctx.runMutation(internal.levels.applyAssets, {
+        levelId,
+        splatUrl: world.splatUrl,
+        colliderUrl: world.colliderUrl,
+        status: "forging:creatures",
+      });
+      await ctx.scheduler.runAfter(0, internal.forge.startCreatures, { levelId });
+    } catch (err) {
+      await fail(ctx, levelId, err);
+    }
+  },
+});
+
+// ---- Mint helpers ----------------------------------------------------------
+
+async function startModelSafely(prompt: string): Promise<string | null> {
+  if (!prompt.trim()) return null;
+  try {
+    return await mint.startModel(prompt, "fast");
+  } catch (err) {
+    console.warn("mint model start failed:", err);
+    return null;
+  }
+}
+
+/** "pending" while generating, a URL when ready, null when unavailable. */
+async function resolveModel(operationId: string | undefined): Promise<string | "pending" | null> {
+  if (!operationId) return null;
+  try {
+    const state = await mint.checkOperation(operationId);
+    if (state.failed) return null;
+    if (!state.done) return "pending";
+    return mint.modelAssetsOf(state.raw)?.glbUrl ?? null;
+  } catch (err) {
+    console.warn("model check failed:", err);
+    return null;
+  }
+}
+
+function urlOrUndefined(value: string | "pending" | null): string | undefined {
+  return typeof value === "string" && value !== "pending" ? value : undefined;
+}
+
+// ---- alternate providers (only when MINT_API_KEY is absent) ----------------
 
 interface WorldAssets {
   splatUrl: string;
   colliderUrl?: string;
 }
 
-async function generateWorld(
-  prompt: string,
-  resumeId: string | undefined,
-  remember: (id: string) => Promise<void>,
-): Promise<WorldAssets> {
-  // Mint is the primary provider: one key covers worlds and models, and its
-  // worlds come back as SPZ + collider mesh, exactly what Spark and Rapier want.
-  if (mint.hasMintKey()) {
-    let id = resumeId;
-    if (id) {
-      console.log(`resuming mint world ${id}`);
-    } else {
-      id = await mint.startWorld(prompt, "standard");
-      await remember(id);
-    }
-    const world = await mint.awaitWorld(id);
-    return { splatUrl: world.splatUrl, colliderUrl: world.colliderUrl };
-  }
-
+async function generateWorldFallback(prompt: string): Promise<WorldAssets> {
   const key = process.env.WORLDLABS_API_KEY;
   if (!key) {
     console.warn("no world provider key — reusing a seed world for this rung");
@@ -137,11 +264,10 @@ async function generateWorld(
   const operationId = pickString(start, ["operation_id", "operationId", "name", "id"]);
   if (!operationId) throw new Error("marble: no operation id in generate response");
 
-  // ~5 minutes typical; give it 12 before declaring the rung failed.
   const world = await poll(
     async () => fetchJson(`${MARBLE}/operations/${operationId}`, { headers: { "WLT-Api-Key": key } }),
     (op) => op.done === true,
-    { timeoutMs: 12 * 60_000, intervalMs: 10_000, label: "marble" },
+    { timeoutMs: 8 * 60_000, intervalMs: 10_000, label: "marble" },
   );
 
   const worldId =
@@ -160,29 +286,10 @@ async function generateWorld(
   return { splatUrl, colliderUrl: pickCollider(urls) };
 }
 
-async function generateModel(
-  prompt: string,
-  resumeId: string | undefined,
-  remember: (id: string) => Promise<void>,
-): Promise<string | null> {
-  if (mint.hasMintKey()) {
-    let id = resumeId;
-    if (!id) {
-      try {
-        id = await mint.startModel(prompt, "fast");
-        await remember(id);
-      } catch (err) {
-        console.warn("mint model start failed:", err);
-        return null;
-      }
-    }
-    const model = await mint.awaitModel(id);
-    return model?.glbUrl ?? null;
-  }
-
+async function generateModelFallback(prompt: string): Promise<string | null> {
   const key = process.env.TRIPO_API_KEY;
-  if (!key) {
-    console.warn("no model provider key — skipping model generation");
+  if (!key || !prompt.trim()) {
+    if (!key) console.warn("no model provider key — skipping model generation");
     return null;
   }
 
@@ -209,7 +316,8 @@ async function generateModel(
     if (!taskId) throw new Error("tripo: no task id");
 
     const done = await poll(
-      async () => fetchJson(`${TRIPO}/task/${taskId}`, { headers: { Authorization: `Bearer ${key}` } }),
+      async () =>
+        fetchJson(`${TRIPO}/task/${taskId}`, { headers: { Authorization: `Bearer ${key}` } }),
       (t) => {
         const status = pickString((t.data ?? t) as Json, ["status"]);
         if (status === "failed" || status === "banned" || status === "cancelled") {
@@ -223,10 +331,11 @@ async function generateModel(
     // Take the model field explicitly: collectUrls would happily return the
     // rendered preview image or a thumbnail that happens to sort first.
     const output = ((done.data ?? {}) as Json).output as Json | undefined;
-    const model =
+    return (
       pickString(output ?? {}, ["pbr_model", "model", "base_model"]) ??
-      collectUrls(done).find((u) => u.toLowerCase().includes(".glb"));
-    return model ?? null;
+      collectUrls(done).find((u) => u.toLowerCase().includes(".glb")) ??
+      null
+    );
   } catch (err) {
     // A missing creature is survivable; the level falls back to stock enemies.
     console.warn("tripo generation failed:", err);
@@ -237,6 +346,20 @@ async function generateModel(
 // ---- small helpers ---------------------------------------------------------
 
 type Json = Record<string, unknown>;
+
+async function fail(
+  ctx: { runMutation: (ref: unknown, args: unknown) => Promise<unknown> },
+  levelId: unknown,
+  err: unknown,
+): Promise<void> {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error("forge failed:", message);
+  await ctx.runMutation(internal.levels.setStatus, {
+    levelId,
+    status: "failed",
+    error: message.slice(0, 400),
+  });
+}
 
 async function fetchJson(url: string, init?: RequestInit): Promise<Json> {
   const res = await fetch(url, init);
@@ -303,35 +426,3 @@ function pickCollider(urls: string[]): string | undefined {
   const glb = urls.filter((u) => u.toLowerCase().includes(".glb"));
   return glb.find((u) => /collider|collision|proxy/i.test(u)) ?? glb[0];
 }
-
-/**
- * Attach an already-generated Mint world to a rung.
- *
- * Recovers a forge whose action died after Mint had finished (and billed) the
- * generation — the assets exist, nobody was left holding the handle.
- */
-export const adopt = internalAction({
-  args: { levelId: v.id("levels"), worldId: v.string() },
-  handler: async (ctx, { levelId, worldId }) => {
-    const world = await mint.fetchWorld(worldId);
-    await ctx.runMutation(internal.levels.applyAssets, {
-      levelId,
-      splatUrl: world.splatUrl,
-      colliderUrl: world.colliderUrl,
-      status: "forging:creatures",
-    });
-    await ctx.runMutation(internal.levels.rememberProvider, { levelId, providerWorldId: worldId });
-
-    const level = await ctx.runQuery(internal.levels.getLevel, { levelId });
-    const [enemyUrl, monumentUrl] = await Promise.all([
-      generateModel(level?.enemyPrompt ?? "a stone creature", undefined, async () => {}),
-      generateModel(level?.monumentPrompt ?? "a stone statue", undefined, async () => {}),
-    ]);
-    await ctx.runMutation(internal.levels.applyAssets, {
-      levelId,
-      enemyUrl: enemyUrl ?? undefined,
-      monumentUrl: monumentUrl ?? undefined,
-    });
-    await ctx.runMutation(internal.levels.finishForge, { levelId });
-  },
-});

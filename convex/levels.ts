@@ -502,3 +502,40 @@ export const devPurgeUsers = mutation({
     return removed;
   },
 });
+
+/** Dev: inspect provider handles for a rung. */
+export const providerFor = query({
+  args: { index: v.number() },
+  handler: async (ctx, { index }) => {
+    const l = await byIndex(ctx, index);
+    return l
+      ? {
+          status: l.status,
+          world: l.providerWorldId ?? null,
+          enemy: l.providerEnemyId ?? null,
+          monument: l.providerMonumentId ?? null,
+        }
+      : null;
+  },
+});
+
+/** Restart the poller for a rung whose forge stalled (see convex/forge.ts). */
+export const resumeForge = mutation({
+  args: { index: v.number() },
+  handler: async (ctx, { index }) => {
+    const level = await byIndex(ctx, index);
+    if (!level) throw new Error(`no level ${index}`);
+
+    if (level.status === "forging:world" && level.providerWorldId) {
+      await ctx.scheduler.runAfter(0, internal.forge.pollWorld, { levelId: level._id });
+      return "polling world";
+    }
+    if (level.status === "forging:creatures") {
+      await ctx.scheduler.runAfter(0, internal.forge.startCreatures, { levelId: level._id });
+      return "polling creatures";
+    }
+    await ctx.db.patch(level._id, { status: "forging:composing", forgeStartedAt: Date.now() });
+    await ctx.scheduler.runAfter(0, internal.forge.generate, { levelId: level._id });
+    return "restarted";
+  },
+});
