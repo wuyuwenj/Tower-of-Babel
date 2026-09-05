@@ -284,6 +284,20 @@ export const applyComposition = internalMutation({
   },
 });
 
+export const rememberProvider = internalMutation({
+  args: {
+    levelId: v.id("levels"),
+    providerWorldId: v.optional(v.string()),
+    providerEnemyId: v.optional(v.string()),
+    providerMonumentId: v.optional(v.string()),
+  },
+  handler: async (ctx, { levelId, ...ids }) => {
+    const patch: Record<string, string> = {};
+    for (const [k, val] of Object.entries(ids)) if (val) patch[k] = val;
+    if (Object.keys(patch).length > 0) await ctx.db.patch(levelId, patch);
+  },
+});
+
 export const applyAssets = internalMutation({
   args: {
     levelId: v.id("levels"),
@@ -340,5 +354,16 @@ export const removeLevel = mutation({
   handler: async (ctx, { index }) => {
     const level = await byIndex(ctx, index);
     if (level) await ctx.db.delete(level._id);
+  },
+});
+
+/** Dev: hand a rung an already-generated Mint world (see forge.adopt). */
+export const adoptWorld = mutation({
+  args: { index: v.number(), worldId: v.string() },
+  handler: async (ctx, { index, worldId }) => {
+    const level = await byIndex(ctx, index);
+    if (!level) throw new Error(`no level ${index}`);
+    await ctx.db.patch(level._id, { status: "forging:world", error: undefined });
+    await ctx.scheduler.runAfter(0, internal.forge.adopt, { levelId: level._id, worldId });
   },
 });

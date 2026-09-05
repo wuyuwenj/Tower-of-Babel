@@ -37,12 +37,31 @@ export function hasMintKey(): boolean {
   return Boolean(process.env.MINT_API_KEY);
 }
 
-export async function generateWorld(
-  prompt: string,
-  preset: Preset = "standard",
-): Promise<WorldResult> {
+/**
+ * Start a world generation and hand back its id immediately, so the caller can
+ * persist it before the long wait. A forge interrupted by a restart can then
+ * resume the generation already paid for.
+ */
+export async function startWorld(prompt: string, preset: Preset = "standard"): Promise<string> {
   const op = await start("worlds:generate", { prompt, preset, name: "Babel level" });
-  const done = await awaitOperation(op.id, 15 * 60_000, "mint world");
+  return op.id;
+}
+
+export async function startModel(prompt: string, preset: Preset = "fast"): Promise<string> {
+  const op = await start("models:generate", { prompt, preset, name: "Babel asset" });
+  return op.id;
+}
+
+/** Read a finished world straight off the resource, bypassing its operation. */
+export async function fetchWorld(worldId: string): Promise<WorldResult> {
+  return readWorldAssets(await call(`worlds/${worldId}`));
+}
+
+export async function awaitWorld(operationId: string): Promise<WorldResult> {
+  return readWorldAssets(await awaitOperation(operationId, 20 * 60_000, "mint world"));
+}
+
+function readWorldAssets(done: Operation): WorldResult {
   const assets = (done.assets ?? {}) as {
     spzUrls?: Record<string, string> | null;
     colliderMeshUrl?: string | null;
@@ -61,13 +80,13 @@ export async function generateWorld(
   };
 }
 
-export async function generateModel(
-  prompt: string,
-  preset: Preset = "fast",
-): Promise<ModelResult | null> {
+export async function generateWorld(prompt: string, preset: Preset = "standard") {
+  return await awaitWorld(await startWorld(prompt, preset));
+}
+
+export async function awaitModel(operationId: string): Promise<ModelResult | null> {
   try {
-    const op = await start("models:generate", { prompt, preset, name: "Babel asset" });
-    const done = await awaitOperation(op.id, 8 * 60_000, "mint model");
+    const done = await awaitOperation(operationId, 12 * 60_000, "mint model");
     const assets = (done.assets ?? {}) as {
       glbUrl?: string | null;
       optimizedGlbUrl?: string | null;
@@ -90,6 +109,15 @@ export async function generateModel(
   } catch (err) {
     // A missing creature is survivable; the level falls back to stock shapes.
     console.warn("mint model generation failed:", err);
+    return null;
+  }
+}
+
+export async function generateModel(prompt: string, preset: Preset = "fast") {
+  try {
+    return await awaitModel(await startModel(prompt, preset));
+  } catch (err) {
+    console.warn("mint model start failed:", err);
     return null;
   }
 }

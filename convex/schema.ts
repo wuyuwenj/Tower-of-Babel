@@ -68,6 +68,12 @@ export default defineSchema({
     forgedBy: v.union(v.string(), v.null()),
     coForgers: v.array(v.string()),
 
+    // Provider handles, so a forge interrupted by a restart can resume the
+    // generation already paid for instead of starting (and billing) a new one.
+    providerWorldId: v.optional(v.string()),
+    providerEnemyId: v.optional(v.string()),
+    providerMonumentId: v.optional(v.string()),
+
     forgeStartedAt: v.optional(v.number()),
     forgeEndedAt: v.optional(v.number()),
     error: v.optional(v.string()),
