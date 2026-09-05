@@ -4,7 +4,7 @@
 // the one thing a text prompt cannot: where the origin is and what is (not)
 // around it. No WebGL, no dependencies; writes a PNG.
 //
-//   node scripts/arena-pano.mjs out.png [--arena 12] [--size 2048] [--theme haunted] [--depth depth.png]
+//   node scripts/arena-pano.mjs out.png [--arena 12] [--size 2048] [--theme haunted] [--depth depth.png] [--depth-max 80]
 //
 // --depth also writes a 16-bit depth panorama (metres, linear 0..DEPTH_MAX) for
 // Marble's pano:depth_to_rgb, which paints a photoreal pano onto this exact
@@ -74,7 +74,7 @@ function rayBox(o, d, b) {
   return { t: t0, axis };
 }
 
-const DEPTH_MAX = 80;
+const DEPTH_MAX = Number(opt("depth-max", 80)); // metres at white; sky and anything beyond clamp here
 function shade(px, py, dir) {
   const o = [0, EYE, 0];
   // Nearest box
