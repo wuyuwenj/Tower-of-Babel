@@ -75,6 +75,8 @@ export class Enemies {
   /** Arena radius for this level, measured from the world (see terrain.ts). */
   private arenaRadius = 30;
   private generatedFor = new Set<Archetype>();
+  /** Instances actually written this frame, per archetype — the draw count. */
+  private drawn = new Map<Archetype, number>();
 
   constructor(world: World) {
     this.world = world;
@@ -99,17 +101,11 @@ export class Enemies {
     const cap = CAPACITY[archetype];
     const mesh = new THREE.InstancedMesh(geom, mat, cap);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.count = cap;
+    // writeInstances raises this to the live count each frame.
+    mesh.count = 0;
     mesh.frustumCulled = false;
     const colors = new Float32Array(cap * 3).fill(1);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
-    // Park every instance out of sight until it is spawned.
-    this.dummy.position.set(0, -999, 0);
-    this.dummy.scale.setScalar(1);
-    this.dummy.rotation.set(0, 0, 0);
-    this.dummy.updateMatrix();
-    for (let i = 0; i < cap; i++) mesh.setMatrixAt(i, this.dummy.matrix);
-    mesh.instanceMatrix.needsUpdate = true;
     this.world.scene.add(mesh);
     this.meshes.set(archetype, mesh);
   }
@@ -120,7 +116,10 @@ export class Enemies {
    * `generated` geometry is already normalized to 1 unit tall and origin-on-floor.
    */
   setModel(geometry: THREE.BufferGeometry, material: THREE.Material): void {
-    const tris = (geometry.getAttribute("position")?.count ?? 0) / 3;
+    // Indexed geometry stores unique vertices, so position.count is not 3x the
+    // triangle count — reading it directly undercounts a merged creature ~2.5x.
+    const index = geometry.getIndex();
+    const tris = (index ? index.count : (geometry.getAttribute("position")?.count ?? 0)) / 3;
     // A 19k-triangle creature times 200 swarm instances is 3.8M triangles a
     // frame. Above the budget the generated model is reserved for the few
     // big enemies, where it reads clearly and costs little.
@@ -342,17 +341,30 @@ export class Enemies {
     return Math.floor(x / CELL) * 73856093 + Math.floor(z / CELL) * 19349663;
   }
 
+  /**
+   * Packs the live enemies into the low instance indices and draws only those.
+   *
+   * An InstancedMesh renders `count` instances whatever their matrices say, and
+   * frustum culling is off, so leaving count at capacity submitted all 392
+   * instances every frame — parked ones included. That is free for a cone and
+   * ruinous for a creature: 8k triangles times 392 is 3M a frame to show a
+   * dozen enemies. The slot pool still bounds how many can exist per archetype;
+   * it just no longer decides where an instance is drawn.
+   */
   private writeInstances(): void {
-    const dirty = new Set<Archetype>();
+    this.drawn.clear();
+
     for (const e of this.list) {
       const mesh = this.meshes.get(e.archetype)!;
       const stats = ARCHETYPES[e.archetype];
       const onFeet = this.generatedFor.has(e.archetype);
+      const index = this.drawn.get(e.archetype) ?? 0;
+
       this.dummy.position.set(e.x, e.y + (onFeet ? 0 : stats.scale * 0.55), e.z);
       this.dummy.rotation.set(0, e.yaw + (onFeet ? MODEL_YAW_OFFSET : 0), 0);
       this.dummy.scale.setScalar(stats.scale);
       this.dummy.updateMatrix();
-      mesh.setMatrixAt(e.slot, this.dummy.matrix);
+      mesh.setMatrixAt(index, this.dummy.matrix);
 
       if (e.flash > 0) {
         this.tint.setRGB(1, 1, 1);
@@ -363,24 +375,20 @@ export class Enemies {
       } else {
         this.tint.copy(BASE_COLOR[e.archetype]).lerp(this.themeColor, 0.35);
       }
-      mesh.setColorAt(e.slot, this.tint);
-      dirty.add(e.archetype);
+      mesh.setColorAt(index, this.tint);
+      this.drawn.set(e.archetype, index + 1);
     }
-    for (const archetype of dirty) {
-      const mesh = this.meshes.get(archetype)!;
+
+    for (const [archetype, mesh] of this.meshes) {
+      const count = this.drawn.get(archetype) ?? 0;
+      mesh.count = count;
+      if (count === 0) continue;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
   }
 
   private release(e: Enemy): void {
-    this.dummy.position.set(0, -999, 0);
-    this.dummy.scale.setScalar(1);
-    this.dummy.rotation.set(0, 0, 0);
-    this.dummy.updateMatrix();
-    const mesh = this.meshes.get(e.archetype)!;
-    mesh.setMatrixAt(e.slot, this.dummy.matrix);
-    mesh.instanceMatrix.needsUpdate = true;
     this.free.get(e.archetype)!.push(e.slot);
   }
 

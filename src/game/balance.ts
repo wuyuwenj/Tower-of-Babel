@@ -98,8 +98,17 @@ export const SPAWN_RING_INNER = 0.62; // fraction of the arena radius
 export const SPAWN_RING_OUTER = 0.92;
 export const MAX_ENEMIES = 300;
 
-/** Triangle budget above which a generated creature is too heavy to swarm. */
-export const SWARM_TRIANGLE_BUDGET = 4000;
+/**
+ * Triangle budget above which a generated creature is too heavy to swarm.
+ *
+ * Raised from 4000 once writeInstances stopped drawing parked instances. The
+ * old number assumed every one of the 392 instances was submitted every frame;
+ * now the draw count follows the living, so cost scales with the fight instead
+ * of with capacity. Measured on floor 1 with the decimated creatures (3.5k-12k
+ * triangles): 23-28 fps before that fix, 55-57 fps after, against 41-42 fps for
+ * the stock cones. Not yet measured at a full 200-enemy wave.
+ */
+export const SWARM_TRIANGLE_BUDGET = 12000;
 
 export interface PlayerStats {
   maxHp: number;
