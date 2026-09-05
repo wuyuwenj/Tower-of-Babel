@@ -36,7 +36,7 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onRename
       <div className="panel start">
         <header className="hero">
           <div>
-            <div className="kicker">Tower of Babel</div>
+            <div className="kicker">Tower of Babel · Sheet 01 · Elevation</div>
             <h1>A tower with no architect.</h1>
             <p className="sub">Climb it. The top is yours to build.</p>
           </div>
@@ -48,13 +48,13 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onRename
         </header>
 
         <ol className="steps">
-          <Step n={1} title="Climb">
+          <Step n="01" title="Climb">
             WASD. Survive three waves and the boss.
           </Step>
-          <Step n={2} title="Take the top">
+          <Step n="02" title="Take the top">
             The highest floor is the frontier. Nobody has beaten it yet.
           </Step>
-          <Step n={3} title="Build the next floor">
+          <Step n="03" title="Build the next floor">
             First to clear it writes what comes next. AI forges it, everyone climbs it — and reads
             the message you left on its floor.
           </Step>
@@ -81,6 +81,7 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onRename
           <span className="dot">·</span>
           <span>{shared ? "Shared tower" : "Local tower — run `npx convex dev` to share it"}</span>
           <div className="spacer" />
+          <span className="sheet">drawn by whoever climbs highest</span>
           {DEV && shared && (
             <>
               <span>force a forge:</span>
@@ -97,7 +98,7 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onRename
   );
 }
 
-function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+function Step({ n, title, children }: { n: string; title: string; children: ReactNode }) {
   return (
     <li>
       <span className="n">{n}</span>
@@ -143,14 +144,15 @@ function Rung({ level, frontier, above, maxCleared, next, now, onPlay }: RungPro
         playable ? "playable" : "locked",
         isFrontier ? "frontier" : "",
         pending ? "pending" : "",
+        isForging(level.status) ? "hatch" : "",
       ].join(" ")}
       disabled={!playable}
       onClick={() => playable && onPlay(level)}
     >
-      <div className="idx">{level.index}</div>
+      <div className="idx">{pad(level.index)}</div>
       <div>
         <div className="theme">
-          {isFrontier && <span className="tag">the frontier</span>}
+          {isFrontier && <span className="tag">◆ frontier</span>}
           {cap(clip(level.prompt ?? level.theme, 72))}
         </div>
         <div className="meta">{describe(level, isFrontier, above)}</div>
@@ -172,7 +174,7 @@ function Rung({ level, frontier, above, maxCleared, next, now, onPlay }: RungPro
       <div className="state">
         {pending ? (
           <>
-            {STATUS_LABEL[level.status]}
+            <span className={`stamp ${stampTone(level.status)}`}>{STATUS_LABEL[level.status]}</span>
             {isForging(level.status) && <Stepper status={level.status} />}
             {elapsed !== null && <div className="dim">{fmt(elapsed)}</div>}
           </>
@@ -180,9 +182,9 @@ function Rung({ level, frontier, above, maxCleared, next, now, onPlay }: RungPro
           <span className={isNext ? "cta" : "cta quiet"}>
             {isNext ? (level.index <= maxCleared ? "Climb again ▶" : "Climb ▶") : "Replay"}
           </span>
-        ) : (
+        ) : level.index === next + 1 ? (
           <span className="dim">clear floor {level.index - 1} first</span>
-        )}
+        ) : null}
       </div>
     </button>
   );
@@ -237,14 +239,16 @@ function Stepper({ status }: { status: LevelStatus }) {
 function GhostRung({ floor, below }: { floor: number; below: number }) {
   return (
     <div className="rung ghost">
-      <div className="idx">{floor}</div>
+      <div className="idx">{pad(floor)}</div>
       <div>
         <div className="theme">Not yet written</div>
         <div className="meta">
           Whoever clears floor {below} first writes this floor — and leaves a message on it.
         </div>
       </div>
-      <div className="state">unwritten</div>
+      <div className="state">
+          <span className="stamp dim">proposed</span>
+        </div>
     </div>
   );
 }
@@ -291,6 +295,15 @@ function NameTag({ user, onRename }: { user: string; onRename: (name: string) =>
       </button>
     </span>
   );
+}
+
+function pad(n: number): string {
+  return n.toString().padStart(2, "0");
+}
+
+/** Stamps are the system's voice: failure is red, everything else is cyan. */
+function stampTone(status: LevelStatus): string {
+  return status === "failed" ? "red" : status === "sealed" ? "dim" : "";
 }
 
 function cap(s: string): string {

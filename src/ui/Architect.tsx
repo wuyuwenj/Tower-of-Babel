@@ -55,6 +55,10 @@ export function Architect({ floor, tally, deadline, now, forged, onForge }: Prop
 
   return (
     <div className="architect">
+      <div className="drawing-no">
+        <span>Drawing Nº {floor.toString().padStart(2, "0")} · specification</span>
+        <span>architect: you</span>
+      </div>
       <div className="field">
         <div className="label-row">
           <label htmlFor="architect-prompt">What is floor {floor}?</label>
@@ -64,7 +68,7 @@ export function Architect({ floor, tally, deadline, now, forged, onForge }: Prop
             title="Another suggestion"
             onClick={() => setPrompt(pickPrefill(tally, prompt))}
           >
-            ↻ suggest another
+            ↻ another
           </button>
         </div>
         <textarea
@@ -96,7 +100,7 @@ export function Architect({ floor, tally, deadline, now, forged, onForge }: Prop
       <div className="field">
         <div className="label-row">
           <label htmlFor="architect-message">
-            Leave a message on the floor <em>optional</em>
+            Inscription on the floor <em>optional · everyone who reaches it walks over it</em>
           </label>
           <span className="count">
             {message.length}/{MAX_MESSAGE}
@@ -105,7 +109,7 @@ export function Architect({ floor, tally, deadline, now, forged, onForge }: Prop
         <input
           id="architect-message"
           maxLength={MAX_MESSAGE}
-          placeholder={`Everyone who reaches floor ${floor} walks over it.`}
+          placeholder="Say something to whoever climbs this far."
           value={message}
           onChange={(e) => setMessage(e.target.value)}
         />

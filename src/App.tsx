@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Game, type CardOffer } from "./game";
+import { rollOffers } from "./game/cards";
 import type { ThemeTag } from "./game/balance";
-import { STATUS_LABEL, isForging, type LevelRecord } from "./levels";
+import { SEED_LEVELS, STATUS_LABEL, isForging, type LevelRecord } from "./levels";
 import { useLadder, type RunRow } from "./useLadder";
 import { Cards } from "./ui/Cards";
 import { ClearScreen } from "./ui/ClearScreen";
@@ -53,17 +54,26 @@ export default function App() {
   const ladderRef = useRef(ladder);
   ladderRef.current = ladder;
 
-  const [phase, setPhase] = useState<Phase>(PREVIEW_RESULT ? "ended" : "ladder");
+  // ?preview=cards / ?preview=hud render the play-time chrome over an empty
+  // scene, so it can be styled without surviving three waves first.
+  const [phase, setPhase] = useState<Phase>(
+    PREVIEW_RESULT ? "ended" : PREVIEW === "cards" || PREVIEW === "hud" ? "playing" : "ladder",
+  );
   const [ready, setReady] = useState(false);
-  const [current, setCurrent] = useState<LevelRecord | null>(null);
+  const [current, setCurrent] = useState<LevelRecord | null>(PREVIEW === "hud" ? SEED_LEVELS[3] : null);
   const [loadStage, setLoadStage] = useState("Preparing");
 
-  const [hp, setHp] = useState({ hp: 100, maxHp: 100 });
-  const [xp, setXp] = useState({ xp: 0, needed: 8, level: 1 });
-  const [wave, setWave] = useState({ wave: 1, wavesPerLevel: 3, remaining: 0 });
-  const [boss, setBoss] = useState<{ hp: number; maxHp: number } | null>(null);
+  const [hp, setHp] = useState(PREVIEW === "hud" ? { hp: 64, maxHp: 118 } : { hp: 100, maxHp: 100 });
+  const [xp, setXp] = useState(PREVIEW === "hud" ? { xp: 11, needed: 19, level: 4 } : { xp: 0, needed: 8, level: 1 });
+  const [wave, setWave] = useState(PREVIEW === "hud" ? { wave: 3, wavesPerLevel: 3, remaining: 7 } : { wave: 1, wavesPerLevel: 3, remaining: 0 });
+  const [boss, setBoss] = useState<{ hp: number; maxHp: number } | null>(
+    PREVIEW === "hud" ? { hp: 540, maxHp: 900 } : null,
+  );
   const [fps, setFps] = useState(0);
-  const [offers, setOffers] = useState<CardOffer[] | null>(null);
+  // ?preview=cards shows a hand of upgrades without earning one, for styling.
+  const [offers, setOffers] = useState<CardOffer[] | null>(
+    PREVIEW === "cards" ? rollOffers(3, null) : null,
+  );
   const [result, setResult] = useState<RunResult | null>(PREVIEW_RESULT);
   const [now, setNow] = useState(Date.now());
   const [runs, setRuns] = useState<RunRow[]>([]);
@@ -199,6 +209,7 @@ export default function App() {
 
   // While you fight, the next rung is being built from the room's votes.
   const forging = (() => {
+    if (PREVIEW === "hud") return { index: 5, theme: "ember wastes", stage: "forging", elapsed: 214 };
     const level = ladder.levels.find((l) => isForging(l.status));
     if (!level) return null;
     return {
@@ -212,6 +223,8 @@ export default function App() {
   return (
     <>
       <canvas ref={canvasRef} />
+
+      {phase === "playing" && <div className="vignette" />}
 
       {phase === "playing" && current && (
         <Hud

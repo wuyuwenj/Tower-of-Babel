@@ -23,7 +23,17 @@ export function Hud(props: Props) {
     <div className="hud">
       <div className="hud-top">
         <div className="wave-chip">
-          Floor {props.levelIndex} · {props.themeLabel} · Wave {props.wave}/{props.wavesPerLevel}
+          <span>
+            Floor {props.levelIndex} · {props.themeLabel}
+          </span>
+          <span className="wave-pips" title={`Wave ${props.wave} of ${props.wavesPerLevel}`}>
+            {Array.from({ length: props.wavesPerLevel }, (_, i) => (
+              <i
+                key={i}
+                className={[i < props.wave ? "on" : "", i === props.wavesPerLevel - 1 ? "boss" : ""].join(" ")}
+              />
+            ))}
+          </span>
         </div>
         {props.boss && (
           <>

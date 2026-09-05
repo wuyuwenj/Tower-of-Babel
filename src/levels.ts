@@ -35,12 +35,12 @@ export type LevelStatus =
 
 export const STATUS_LABEL: Record<LevelStatus, string> = {
   ready: "open",
-  awaiting: "awaiting its architect",
+  awaiting: "awaiting architect",
   sealed: "sealed",
   failed: "forge failed",
-  "forging:composing": "composing…",
-  "forging:world": "forging world…",
-  "forging:creatures": "forging creatures…",
+  "forging:composing": "forging",
+  "forging:world": "forging",
+  "forging:creatures": "forging",
 };
 
 export function isForging(status: LevelStatus): boolean {
