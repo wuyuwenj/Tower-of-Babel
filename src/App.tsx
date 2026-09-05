@@ -1,122 +1,172 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Game, type CardOffer } from "./game";
+import type { ThemeTag } from "./game/balance";
+import { SEED_LEVELS, type LevelRecord } from "./levels";
+import { Cards } from "./ui/Cards";
+import { ClearScreen } from "./ui/ClearScreen";
+import { Hud } from "./ui/Hud";
+import { Ladder } from "./ui/Ladder";
 
-function App() {
-  const [count, setCount] = useState(0)
+type Phase = "ladder" | "loading" | "playing" | "ended";
+
+export default function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gameRef = useRef<Game | null>(null);
+
+  const [phase, setPhase] = useState<Phase>("ladder");
+  const [levels, setLevels] = useState<LevelRecord[]>(SEED_LEVELS);
+  const [maxCleared, setMaxCleared] = useState(0);
+  const [current, setCurrent] = useState<LevelRecord | null>(null);
+  const [loadStage, setLoadStage] = useState("Preparing");
+
+  const [hp, setHp] = useState({ hp: 100, maxHp: 100 });
+  const [xp, setXp] = useState({ xp: 0, needed: 8, level: 1 });
+  const [wave, setWave] = useState({ wave: 1, wavesPerLevel: 3, remaining: 0 });
+  const [boss, setBoss] = useState<{ hp: number; maxHp: number } | null>(null);
+  const [fps, setFps] = useState(0);
+  const [offers, setOffers] = useState<CardOffer[] | null>(null);
+  const [result, setResult] = useState<{
+    cleared: boolean;
+    levelIndex: number;
+    score: number;
+    timeSeconds: number;
+    message: string | null;
+  } | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    if (!canvasRef.current) return;
+    Game.create(canvasRef.current).then((game) => {
+      if (disposed) {
+        game.dispose();
+        return;
+      }
+      gameRef.current = game;
+      game.bus.on("hp", setHp);
+      game.bus.on("xp", setXp);
+      game.bus.on("wave", setWave);
+      game.bus.on("boss", setBoss);
+      game.bus.on("fps", (f) => setFps(f.value));
+      game.bus.on("loading", (l) => setLoadStage(l.stage));
+      game.bus.on("levelup", (e) => setOffers(e.offers));
+      game.bus.on("pick", (e) => recordPick(e.tag));
+      game.bus.on("clear", (e) => {
+        setResult({ ...e, cleared: true, message: null });
+        setPhase("ended");
+        onCleared(e.levelIndex, e.score);
+      });
+      game.bus.on("death", (e) => {
+        setResult({ ...e, cleared: false, message: null });
+        setPhase("ended");
+      });
+    });
+    return () => {
+      disposed = true;
+      gameRef.current?.dispose();
+      gameRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Every upgrade pick votes on the frontier level's theme. */
+  const recordPick = useCallback((tag: ThemeTag) => {
+    setLevels((prev) => {
+      const frontierIndex = prev.reduce((m, l) => Math.max(m, l.index), 0);
+      return prev.map((l) =>
+        l.index === frontierIndex
+          ? { ...l, tally: { ...l.tally, [tag]: (l.tally[tag] ?? 0) + 1 } }
+          : l,
+      );
+    });
+  }, []);
+
+  const onCleared = useCallback((levelIndex: number, _score: number) => {
+    setMaxCleared((m) => Math.max(m, levelIndex));
+  }, []);
+
+  const play = useCallback(async (level: LevelRecord) => {
+    const game = gameRef.current;
+    if (!game) return;
+    setCurrent(level);
+    setOffers(null);
+    setResult(null);
+    setPhase("loading");
+    await game.loadLevel({
+      levelIndex: level.index,
+      themeTag: level.themeTag,
+      splatUrl: level.splatUrl,
+      colliderUrl: level.colliderUrl,
+      yOffset: level.yOffset,
+      scale: level.scale,
+      composition: level.composition,
+      cardSkins: level.cardSkins,
+    });
+    setPhase("playing");
+  }, []);
+
+  const pick = useCallback((offer: CardOffer) => {
+    setOffers(null);
+    gameRef.current?.choose(offer);
+  }, []);
+
+  const toLadder = useCallback(() => {
+    setPhase("ladder");
+    setOffers(null);
+    setResult(null);
+  }, []);
 
   return (
     <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      <canvas ref={canvasRef} />
 
-      <div className="ticks"></div>
+      {phase === "playing" && current && (
+        <Hud
+          hp={hp.hp}
+          maxHp={hp.maxHp}
+          xp={xp.xp}
+          xpNeeded={xp.needed}
+          playerLevel={xp.level}
+          wave={wave.wave}
+          wavesPerLevel={wave.wavesPerLevel}
+          remaining={wave.remaining}
+          levelIndex={current.index}
+          themeLabel={current.theme}
+          boss={boss}
+          fps={fps}
+          onQuit={toLadder}
+        />
+      )}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      {offers && <Cards offers={offers} onPick={pick} />}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
+      {phase === "loading" && (
+        <div className="loading">
+          <div className="title">Tower of Babel</div>
+          <div>{loadStage}…</div>
+        </div>
+      )}
+
+      {phase === "ladder" && (
+        <Ladder levels={levels} maxCleared={maxCleared} onPlay={play} now={now} />
+      )}
+
+      {phase === "ended" && result && (
+        <ClearScreen
+          cleared={result.cleared}
+          levelIndex={result.levelIndex}
+          score={result.score}
+          timeSeconds={result.timeSeconds}
+          message={result.message}
+          onRetry={() => current && play(current)}
+          onLadder={toLadder}
+        />
+      )}
     </>
-  )
+  );
 }
-
-export default App
