@@ -1,0 +1,21 @@
+scripts/check-world-resolver.ts
+  s_165c5915ffeb5f::t_5bc6e0147fbc90 25-33
+.gitignore
+  s_165c5915ffeb5f::t_ba521946231495 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ae4c2c666507da9b6cf9c327a420b368c3852c75",
+  "prompts": {},
+  "sessions": {
+    "s_165c5915ffeb5f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba991453-5e3d-4da6-be3a-321a3f2153fd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}

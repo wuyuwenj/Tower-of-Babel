@@ -1,0 +1,24 @@
+scripts/check-world-resolver.ts
+  s_165c5915ffeb5f::t_61bb3909e55b5e 1-58
+src/game/net.ts
+  s_165c5915ffeb5f::t_da0ba3b4aa35ca 15,21-31
+  s_165c5915ffeb5f::t_5d48c8c6b23743 32
+package.json
+  s_165c5915ffeb5f::t_c796ea75a79d73 12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4b7f1bcd1a537934501439430af61ad6362ecc84",
+  "prompts": {},
+  "sessions": {
+    "s_165c5915ffeb5f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba991453-5e3d-4da6-be3a-321a3f2153fd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
