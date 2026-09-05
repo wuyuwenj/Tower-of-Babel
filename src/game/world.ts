@@ -57,7 +57,10 @@ export class World {
   constructor(canvas: HTMLCanvasElement, physics: RAPIER.World) {
     this.physics = physics;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Splats are soft blobs that gain nothing from a Retina buffer, and their
+    // cost scales with the pixels they cover: a 2.45 M-splat seed world ran at
+    // 37 fps in a 2x buffer and hit the vsync cap in a 1x one on the same GPU.
+    this.renderer.setPixelRatio(1);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(0x05060a);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
