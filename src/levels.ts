@@ -57,8 +57,18 @@ const BASE = "https://storage.googleapis.com/forge-dev-public/hackathon-260227";
  * (`npm run fetch:worlds`). Venue wifi is not something a two-minute demo
  * should depend on, and a local load is roughly ten times faster.
  */
-function seedWorld(file: string): string {
-  return `/worlds/${file}`;
+const WORLD_REMOTES = new Map<string, string>();
+
+/** Register a seed world: served from the local cache, fetched from `remote` when absent. */
+function seedWorld(file: string, remote = `${BASE}/${file}`): string {
+  const local = `/worlds/${file}`;
+  WORLD_REMOTES.set(local, remote);
+  return local;
+}
+
+/** Where a `/worlds/...` path can be fetched from when the local cache is empty. */
+export function remoteWorldUrl(local: string): string | undefined {
+  return WORLD_REMOTES.get(local);
 }
 
 export const REMOTE_SEED_BASE = BASE;

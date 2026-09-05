@@ -2,6 +2,8 @@
  * Seed worlds are served locally when cached and fall back to the CDN when not.
  * A HEAD probe keeps the fallback silent instead of failing a level load.
  */
+import { remoteWorldUrl } from "../levels";
+
 const REMOTE_BASE = "https://storage.googleapis.com/forge-dev-public/hackathon-260227";
 const checked = new Map<string, Promise<string>>();
 
@@ -10,7 +12,7 @@ export function resolveWorldUrl(url: string): Promise<string> {
 
   let hit = checked.get(url);
   if (!hit) {
-    const remote = `${REMOTE_BASE}/${url.slice("/worlds/".length)}`;
+    const remote = remoteWorldUrl(url) ?? `${REMOTE_BASE}/${url.slice("/worlds/".length)}`;
     // A dev server (and any SPA-rewriting host) answers an unknown path with
     // index.html and a 200, so `ok` alone would hand the splat loader HTML to
     // gunzip. Only a non-HTML 200 counts as the file being there.
