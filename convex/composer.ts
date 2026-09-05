@@ -141,6 +141,22 @@ const MASHUP_NAMES: Record<string, string> = {
   "tech|void": "dead signal",
 };
 
+/**
+ * Appended to every world prompt.
+ *
+ * The game pens the player into a circular arena (see World.buildArenaWall).
+ * That wall is invisible, so a world whose middle is cluttered reads as the
+ * player being stopped by nothing. Asking for a clear centre makes the
+ * generated geometry agree with the collision it is going to get.
+ */
+export const ARENA_CLAUSE =
+  "the centre of the scene is a large flat clear open floor with nothing standing on it; " +
+  "all walls, structures, props and obstacles sit around the outer edge, facing inward";
+
+export function withArena(prompt: string): string {
+  return prompt.includes(ARENA_CLAUSE) ? prompt : `${prompt}, ${ARENA_CLAUSE}`;
+}
+
 export const THEME_TAGS: ThemeTag[] = ["fire", "ice", "void", "nature", "tech", "stone"];
 
 /**

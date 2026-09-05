@@ -36,7 +36,12 @@ export function sampleTerrain(splat: SplatMesh, flipped: boolean): Terrain {
   const cells: number[][] = Array.from({ length: GRID * GRID }, () => []);
   const all: number[] = [];
 
-  const sign = flipped ? -1 : 1;
+  // forEachSplat yields raw local centers, so the sampler has to reproduce the
+  // mesh transform itself or the floor lands somewhere the world is not.
+  // `flip` is quaternion (1,0,0,0): 180 degrees about X, so y and z negate and
+  // x is left alone. Negating x and z instead yaws the whole floor by 180.
+  const flip = flipped ? -1 : 1;
+  const scale = splat.scale.x;
   // NB: SplatMesh.numSplats is a shader value, not a number. The real count
   // lives on packedSplats; anything non-numeric must fall back to stride 1 or
   // the modulo below silently rejects every splat.
@@ -51,9 +56,9 @@ export function sampleTerrain(splat: SplatMesh, flipped: boolean): Terrain {
     // Dense worlds carry millions of splats and we only need the shape.
     if (seen++ % stride !== 0) return;
 
-    const x = sign * center.x;
-    const y = sign * center.y;
-    const z = center.z;
+    const x = scale * center.x;
+    const y = scale * flip * center.y;
+    const z = scale * flip * center.z;
 
     if (Math.abs(x) > extent || Math.abs(z) > extent) return;
 

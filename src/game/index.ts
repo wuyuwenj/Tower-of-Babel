@@ -90,6 +90,7 @@ export class Game {
     this.enemies.setTheme(color);
     this.enemies.setArena(this.world.arenaRadius);
     this.combat.setThemeColor(color);
+    this.world.setArenaColor(color);
 
     // This level's forged creature, else the baked one for its theme. Stock
     // shapes are the last resort: a dead provider URL must not empty the level.

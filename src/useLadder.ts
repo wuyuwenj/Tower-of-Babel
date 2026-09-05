@@ -227,8 +227,13 @@ function toRecord(row: any): LevelRecord {
     colliderUrl: row.colliderUrl ?? null,
     enemyUrl: row.enemyUrl ?? null,
     monumentUrl: row.monumentUrl ?? null,
-    yOffset: row.yOffset ?? 0,
+    yOffset: row.yOffset ?? null,
     scale: row.scale ?? 1,
+    // Convex seeds rows without an arena radius (and skips rows that already
+    // exist), so the hand-tuned seed values have to be resolved client-side.
+    arenaRadius:
+      row.arenaRadius ??
+      (row.seed ? (SEED_LEVELS.find((s) => s.index === row.index)?.arenaRadius ?? null) : null),
     composition: row.composition ?? null,
     cardSkins: row.cardSkins ?? null,
     status: row.status as LevelStatus,

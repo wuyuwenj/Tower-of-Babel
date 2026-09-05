@@ -9,8 +9,11 @@ export interface LevelRecord {
   colliderUrl: string | null;
   enemyUrl: string | null;
   monumentUrl: string | null;
-  yOffset: number;
+  /** null = measure the floor from the splat cloud, which is nearly always right. */
+  yOffset: number | null;
   scale: number;
+  /** Invisible wall radius. null = the balance.ts default. Tune with ?arena=N. */
+  arenaRadius: number | null;
   composition: Archetype[][] | null;
   cardSkins: CardSkin[] | null;
   status: LevelStatus;
@@ -73,8 +76,9 @@ export const SEED_LEVELS: LevelRecord[] = [
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
-    yOffset: 0,
-    scale: 1,
+    yOffset: null,
+    scale: 4,
+    arenaRadius: 13,
     composition: null,
     cardSkins: null,
     status: "ready",
@@ -93,8 +97,9 @@ export const SEED_LEVELS: LevelRecord[] = [
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
-    yOffset: 0,
-    scale: 1,
+    yOffset: null,
+    scale: 3,
+    arenaRadius: 13,
     composition: null,
     cardSkins: null,
     status: "ready",
@@ -113,8 +118,9 @@ export const SEED_LEVELS: LevelRecord[] = [
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
-    yOffset: 0,
+    yOffset: null,
     scale: 1,
+    arenaRadius: 7,
     composition: null,
     cardSkins: null,
     status: "ready",
@@ -133,8 +139,9 @@ export const SEED_LEVELS: LevelRecord[] = [
     colliderUrl: null,
     enemyUrl: null,
     monumentUrl: null,
-    yOffset: 0,
-    scale: 1,
+    yOffset: null,
+    scale: 2,
+    arenaRadius: 10,
     composition: null,
     cardSkins: null,
     status: "ready",
