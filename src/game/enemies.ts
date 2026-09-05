@@ -12,6 +12,12 @@ import type { World } from "./world";
 const CAPACITY: Record<Archetype, number> = { swarm: 220, fast: 120, tank: 48, boss: 4 };
 const CELL = 1.6;
 
+/**
+ * Generated creatures come back +Z-forward, which is what `atan2(vx, vz)`
+ * already produces. Kept as a knob because providers disagree about forward.
+ */
+const MODEL_YAW_OFFSET = 0;
+
 interface Enemy {
   archetype: Archetype;
   slot: number;
@@ -28,6 +34,8 @@ interface Enemy {
   phase: number;
   flash: number;
   alive: boolean;
+  /** Yaw of travel, held between frames so a stalled enemy keeps facing forward. */
+  yaw: number;
 }
 
 export interface EnemyHit {
@@ -157,6 +165,8 @@ export class Enemies {
       phase: Math.random() * Math.PI * 2,
       flash: 0,
       alive: true,
+      // Spawned on a ring facing the player at the centre.
+      yaw: Math.atan2(origin.x - x, origin.z - z),
     });
     return true;
   }
@@ -238,6 +248,9 @@ export class Enemies {
       e.x += vx * dt;
       e.z += vz * dt;
 
+      // Face where it is actually going, not where it stands.
+      if (vx * vx + vz * vz > 0.0001) e.yaw = Math.atan2(vx, vz);
+
       // Stagger ground sampling: each enemy re-samples a few times a second.
       if ((frame + e.slot) % 12 === 0) e.ground = this.world.groundHeight(e.x, e.z);
       const hop = e.archetype === "tank" ? 0.06 : 0.16;
@@ -288,13 +301,17 @@ export class Enemies {
       const mesh = this.meshes.get(e.archetype)!;
       const stats = ARCHETYPES[e.archetype];
       this.dummy.position.set(e.x, e.y + (this.generated ? 0 : stats.scale * 0.55), e.z);
-      this.dummy.rotation.set(0, Math.atan2(e.x, e.z), 0);
+      this.dummy.rotation.set(0, e.yaw + (this.generated ? MODEL_YAW_OFFSET : 0), 0);
       this.dummy.scale.setScalar(stats.scale);
       this.dummy.updateMatrix();
       mesh.setMatrixAt(e.slot, this.dummy.matrix);
 
       if (e.flash > 0) {
         this.tint.setRGB(1, 1, 1);
+      } else if (this.generated) {
+        // Instance color multiplies the texture, so start from white and only
+        // lean toward the archetype hue — otherwise a textured model goes muddy.
+        this.tint.setRGB(1, 1, 1).lerp(BASE_COLOR[e.archetype], 0.35);
       } else {
         this.tint.copy(BASE_COLOR[e.archetype]).lerp(this.themeColor, 0.35);
       }

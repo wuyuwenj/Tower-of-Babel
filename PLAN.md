@@ -61,6 +61,10 @@
 - Roblox export
 - Mobile controls
 - Any in-game editor
+- Per-archetype creature models (boss is the same mesh at 3.4x scale)
+- Re-hosting forged assets in Convex file storage. Mint returns unsigned
+  cdn.mint.gg URLs that do not expire, and a level whose asset does go missing
+  falls back to the baked `public/creatures/<theme>.glb`, so this is not urgent.
 
 ## Pre-demo checklist
 - 5 levels pre-forged with distinct themes, all cached and loading < 5s

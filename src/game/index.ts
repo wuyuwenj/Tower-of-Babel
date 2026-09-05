@@ -73,15 +73,13 @@ export class Game {
     this.enemies.setTheme(color);
     this.combat.setThemeColor(color);
 
-    // Generated creature, if this level has one. Falls back to stock shapes.
-    if (spec.enemyUrl) {
-      this.bus.emit("loading", { stage: "Loading creatures", done: false });
-      const model = await loadInstanceable(spec.enemyUrl, 1.0);
-      if (model) this.enemies.setModel(model.geometry, model.material);
-      else this.enemies.resetModel();
-    } else {
-      this.enemies.resetModel();
-    }
+    // This level's forged creature, else the baked one for its theme. Stock
+    // shapes are the last resort: a dead provider URL must not empty the level.
+    const enemyUrl = spec.enemyUrl ?? `/creatures/${spec.themeTag}.glb`;
+    this.bus.emit("loading", { stage: "Loading creatures", done: false });
+    const model = await loadInstanceable(enemyUrl, 1.0);
+    if (model) this.enemies.setModel(model.geometry, model.material);
+    else this.enemies.resetModel();
 
     // The monument to whoever forged this level, standing beside the spawn.
     if (this.monument) {

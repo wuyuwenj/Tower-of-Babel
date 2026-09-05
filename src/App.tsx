@@ -120,7 +120,8 @@ export default function App() {
       themeTag: level.themeTag,
       splatUrl: level.splatUrl,
       colliderUrl: level.colliderUrl,
-      enemyUrl: level.enemyUrl,
+      // ?enemy=/creatures/foo.glb previews a creature without forging a level.
+      enemyUrl: new URLSearchParams(location.search).get("enemy") ?? level.enemyUrl,
       monumentUrl: level.monumentUrl,
       forgedBy: level.forgedBy,
       coForgers: level.coForgers,
