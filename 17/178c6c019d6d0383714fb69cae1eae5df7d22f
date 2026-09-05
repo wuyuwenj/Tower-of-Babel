@@ -1,0 +1,75 @@
+scripts/animate-creatures.mjs
+  s_281abf673eac41::t_290f95149499a7 5,7-9,12,56,62-67,91-95,159-164,173-180,182,186,208,279-286,288
+  s_281abf673eac41::t_b88feff53e408e 88
+  s_281abf673eac41::t_b3d36321b6f922 1-4,6,13-55,68-87,89-90,96-158,165-172,181,183-185,187-190,196-197,204-207,209-278,287,289-291
+  s_281abf673eac41::t_909d4fc26502c8 10-11,57-61,191-195,198-203
+public/creatures/stone.rig.json
+  s_281abf673eac41::t_60b0d0f4f46615 2-8,12,14-15
+  s_281abf673eac41::t_e8738a19783699 1,25-26
+  s_281abf673eac41::t_8d83f179c986c4 9-11
+  s_281abf673eac41::t_1b1221176fe7ff 13
+  s_281abf673eac41::t_ba9e2647f6c895 16-24
+public/creatures/ice.rig.json
+  s_281abf673eac41::t_60b0d0f4f46615 2-8,12,14-15
+  s_281abf673eac41::t_355efd24a78447 13
+  s_281abf673eac41::t_e8738a19783699 1,25-26
+  s_9c20d91ed9e15b::t_45bc67d8654935 19-21
+  s_281abf673eac41::t_5133f0dec25de0 16-18,22-24
+  s_281abf673eac41::t_30caec95142b54 9-11
+public/creatures/tech.rig.json
+  s_281abf673eac41::t_e8738a19783699 1,25-26
+  s_281abf673eac41::t_f24a58351a4a17 16-18,22-24
+  s_9c20d91ed9e15b::t_a7c5cc6c693bd9 19-21
+  s_281abf673eac41::t_cf7ffcdda81b93 13
+  s_281abf673eac41::t_88d9cce6618998 9-11
+  s_281abf673eac41::t_60b0d0f4f46615 2-8,12,14-15
+public/creatures/nature.rig.json
+  s_281abf673eac41::t_67e13c411d1cf6 21-23
+  s_281abf673eac41::t_e5cec3157c55d0 15-18
+  s_281abf673eac41::t_60b0d0f4f46615 2-8,12,14
+  s_281abf673eac41::t_f98be3e5a1fa3d 9-11
+  s_281abf673eac41::t_853c0c92eac0fe 13
+  s_281abf673eac41::t_c4d47f9b335a25 24-26
+  s_281abf673eac41::t_e8738a19783699 1,19-20
+public/creatures/void.rig.json
+  s_281abf673eac41::t_6d54e9376676a1 9-11
+  s_281abf673eac41::t_b5ee60157d1b6e 13
+  s_281abf673eac41::t_e8738a19783699 1,25-26
+  s_281abf673eac41::t_cc90b77b8d4b6d 18-21
+  s_281abf673eac41::t_60b0d0f4f46615 2-8,12,14
+  s_281abf673eac41::t_72cf3915a2bdb0 15-17,22-24
+src/game/index.ts
+  s_281abf673eac41::t_3b20901aaf7444 99
+src/game/enemies.ts
+  s_281abf673eac41::t_3b20901aaf7444 12,81-83,113-118,124,126-128,130-136,159-160,175-176,324-330,336,407-413,423-424,439-440
+public/creatures/fire.rig.json
+  s_281abf673eac41::t_e8738a19783699 1,26
+  s_281abf673eac41::t_60b0d0f4f46615 2-25
+src/game/models.ts
+  s_281abf673eac41::t_6289b5c1ece9c2 2-4,9,11-15,25,29-56,63-66,71,73-76,80,82,88,91-94,101-112,124-149,159,164,174-176,183-220,222-245,248-306,308-329
+  s_281abf673eac41::t_b88feff53e408e 221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "17178c6c019d6d0383714fb69cae1eae5df7d22f",
+  "prompts": {},
+  "sessions": {
+    "s_281abf673eac41": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d38ddf19-be3f-49fd-8eb3-0477f4ea8c60",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": null
+    },
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
