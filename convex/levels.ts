@@ -49,6 +49,7 @@ export const progressFor = query({
   },
 });
 
+/** Top clears of one rung, best score first. */
 export const leaderboard = query({
   args: { levelIndex: v.number() },
   handler: async (ctx, { levelIndex }) => {
@@ -58,8 +59,67 @@ export const leaderboard = query({
       .collect();
     return runs
       .filter((r) => r.cleared)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+      .sort((a, b) => b.score - a.score || a.timeSeconds - b.timeSeconds)
+      .slice(0, 10)
+      .map((r) => ({ user: r.user, score: r.score, timeSeconds: r.timeSeconds, at: r._creationTime }));
+  },
+});
+
+export interface Standing {
+  user: string;
+  maxCleared: number;
+  bestScore: number;
+  clears: number;
+  deaths: number;
+  /** Rungs this player claimed by clearing the frontier first. */
+  forged: number;
+}
+
+/**
+ * The tower-wide leaderboard: who has climbed highest, and with what score.
+ * Ranked by highest rung cleared, then rungs forged, then best score, then
+ * fewest deaths. Every table here is tiny for a room of players, so a full
+ * scan is fine and the query stays reactive.
+ */
+export const standings = query({
+  args: {},
+  handler: async (ctx): Promise<Standing[]> => {
+    const rows = new Map<string, Standing>();
+    const row = (user: string): Standing => {
+      let r = rows.get(user);
+      if (!r) {
+        r = { user, maxCleared: 0, bestScore: 0, clears: 0, deaths: 0, forged: 0 };
+        rows.set(user, r);
+      }
+      return r;
+    };
+
+    for (const p of await ctx.db.query("progress").collect()) {
+      row(p.user).maxCleared = Math.max(row(p.user).maxCleared, p.maxCleared);
+    }
+    for (const r of await ctx.db.query("runs").collect()) {
+      const s = row(r.user);
+      if (r.cleared) {
+        s.clears++;
+        s.bestScore = Math.max(s.bestScore, r.score);
+      } else {
+        s.deaths++;
+      }
+    }
+    for (const l of await ctx.db.query("levels").collect()) {
+      if (l.forgedBy) row(l.forgedBy).forged++;
+    }
+
+    return [...rows.values()]
+      .sort(
+        (a, b) =>
+          b.maxCleared - a.maxCleared ||
+          b.forged - a.forged ||
+          b.bestScore - a.bestScore ||
+          a.deaths - b.deaths ||
+          a.user.localeCompare(b.user),
+      )
+      .slice(0, 25);
   },
 });
 
@@ -187,7 +247,26 @@ export const clearLevel = mutation({
     }
 
     const next = await byIndex(ctx, levelIndex + 1);
-    if (!next) return { forgedBy: null, first: false };
+    if (!next) {
+      // Nobody reached the boss "officially" (reachedBoss lost to the network,
+      // or the client was killed at wave 3). The clear itself is proof enough:
+      // create the rung, claim it, and start the forge. Still one transaction,
+      // so two simultaneous clears cannot both insert it.
+      const current = await byIndex(ctx, levelIndex);
+      if (!current) return { forgedBy: null, first: false };
+      const id = await ctx.db.insert("levels", {
+        index: levelIndex + 1,
+        theme: "unforged",
+        themeTag: "stone",
+        status: "forging:composing",
+        tally: { ...current.tally },
+        forgedBy: user,
+        coForgers: [],
+        forgeStartedAt: Date.now(),
+      });
+      await ctx.scheduler.runAfter(0, internal.forge.generate, { levelId: id });
+      return { forgedBy: user, first: true };
+    }
 
     if (next.forgedBy === null) {
       const patch: { forgedBy: string; status?: "ready" } = { forgedBy: user };
@@ -365,5 +444,61 @@ export const adoptWorld = mutation({
     if (!level) throw new Error(`no level ${index}`);
     await ctx.db.patch(level._id, { status: "forging:world", error: undefined });
     await ctx.scheduler.runAfter(0, internal.forge.adopt, { levelId: level._id, worldId });
+  },
+});
+
+/** Dev: close a gap in the ladder. A missing rung is unreachable forever. */
+export const renumber = mutation({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }) => {
+    const source = await byIndex(ctx, from);
+    if (!source) throw new Error(`no level ${from}`);
+    if (await byIndex(ctx, to)) throw new Error(`level ${to} already exists`);
+    await ctx.db.patch(source._id, { index: to });
+  },
+});
+
+// ---- dev helpers for scripts/race-test.mjs ---------------------------------
+
+/**
+ * Dev: insert a bare rung with no assets so the clear race can be exercised
+ * against a real backend without triggering a forge. Idempotent.
+ */
+export const devInsertLevel = mutation({
+  args: { index: v.number(), status: levelStatus },
+  handler: async (ctx, { index, status }) => {
+    if (await byIndex(ctx, index)) return false;
+    await ctx.db.insert("levels", {
+      index,
+      theme: `test rung ${index}`,
+      themeTag: "stone",
+      status,
+      tally: {},
+      forgedBy: null,
+      coForgers: [],
+    });
+    return true;
+  },
+});
+
+/** Dev: erase the runs and progress of test players whose names share a prefix. */
+export const devPurgeUsers = mutation({
+  args: { prefix: v.string() },
+  handler: async (ctx, { prefix }) => {
+    if (prefix.length < 4) throw new Error("refusing to purge with a prefix shorter than 4 chars");
+    let removed = 0;
+    for (const r of await ctx.db.query("runs").collect()) {
+      if (r.user.startsWith(prefix)) {
+        await ctx.db.delete(r._id);
+        removed++;
+      }
+    }
+    for (const p of await ctx.db.query("progress").collect()) {
+      if (p.user.startsWith(prefix)) {
+        await ctx.db.delete(p._id);
+        removed++;
+      }
+    }
+    return removed;
   },
 });

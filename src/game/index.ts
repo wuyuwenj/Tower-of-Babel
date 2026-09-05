@@ -77,6 +77,7 @@ export class Game {
 
     const color = THEME_COLOR[spec.themeTag] ?? 0xffffff;
     this.enemies.setTheme(color);
+    this.enemies.setArena(this.world.arenaRadius);
     this.combat.setThemeColor(color);
 
     // Generated creature, if this level has one. Falls back to stock shapes.

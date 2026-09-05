@@ -2,8 +2,9 @@ import * as THREE from "three";
 import {
   ARCHETYPES,
   MAX_ENEMIES,
-  SPAWN_RING_MAX,
-  SPAWN_RING_MIN,
+  SPAWN_RING_INNER,
+  SPAWN_RING_OUTER,
+  SWARM_TRIANGLE_BUDGET,
   damageScale,
   hpScale,
   type Archetype,
@@ -56,6 +57,9 @@ export class Enemies {
   private world: World;
   private themeColor = new THREE.Color(0xffffff);
   private generated = false;
+  /** Arena radius for this level, measured from the world (see terrain.ts). */
+  private arenaRadius = 30;
+  private generatedFor = new Set<Archetype>();
 
   constructor(world: World) {
     this.world = world;
@@ -101,8 +105,21 @@ export class Enemies {
    * `generated` geometry is already normalized to 1 unit tall and origin-on-floor.
    */
   setModel(geometry: THREE.BufferGeometry, material: THREE.Material): void {
+    const tris = (geometry.getAttribute("position")?.count ?? 0) / 3;
+    // A 19k-triangle creature times 200 swarm instances is 3.8M triangles a
+    // frame. Above the budget the generated model is reserved for the few
+    // big enemies, where it reads clearly and costs little.
+    const heavy = tris > SWARM_TRIANGLE_BUDGET;
+
     for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
-      this.build(archetype, geometry.clone(), material.clone());
+      const useGenerated = !heavy || archetype === "tank" || archetype === "boss";
+      this.build(
+        archetype,
+        useGenerated ? geometry.clone() : defaultGeometry(archetype),
+        useGenerated ? material.clone() : defaultMaterial(),
+      );
+      this.generatedFor.add(archetype);
+      if (!useGenerated) this.generatedFor.delete(archetype);
     }
     this.generated = true;
   }
@@ -113,11 +130,16 @@ export class Enemies {
     for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
       this.build(archetype, defaultGeometry(archetype), defaultMaterial());
     }
+    this.generatedFor.clear();
     this.generated = false;
   }
 
   setTheme(color: number): void {
     this.themeColor.setHex(color);
+  }
+
+  setArena(radius: number): void {
+    this.arenaRadius = radius;
   }
 
   get aliveCount(): number {
@@ -138,8 +160,11 @@ export class Enemies {
     // HP and damage ride separate curves: see balance.ts.
     const hp = hpScale(levelIndex);
     const dmg = damageScale(levelIndex);
+    // Spawn on a ring just inside the world's real edge, never beyond it.
     const angle = Math.random() * Math.PI * 2;
-    const dist = SPAWN_RING_MIN + Math.random() * (SPAWN_RING_MAX - SPAWN_RING_MIN);
+    const inner = this.arenaRadius * SPAWN_RING_INNER;
+    const outer = this.arenaRadius * SPAWN_RING_OUTER;
+    const dist = inner + Math.random() * (outer - inner);
     const x = origin.x + Math.cos(angle) * dist;
     const z = origin.z + Math.sin(angle) * dist;
     const ground = this.world.groundHeight(x, z);
@@ -290,7 +315,8 @@ export class Enemies {
     for (const e of this.list) {
       const mesh = this.meshes.get(e.archetype)!;
       const stats = ARCHETYPES[e.archetype];
-      this.dummy.position.set(e.x, e.y + (this.generated ? 0 : stats.scale * 0.55), e.z);
+      const onFeet = this.generatedFor.has(e.archetype);
+      this.dummy.position.set(e.x, e.y + (onFeet ? 0 : stats.scale * 0.55), e.z);
       this.dummy.rotation.set(0, Math.atan2(e.x, e.z), 0);
       this.dummy.scale.setScalar(stats.scale);
       this.dummy.updateMatrix();

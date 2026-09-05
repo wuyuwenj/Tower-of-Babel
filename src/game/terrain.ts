@@ -12,6 +12,8 @@ export interface Terrain {
   /** Row-major GRID x GRID heights covering [-extent, extent] on x and z. */
   heights: Float32Array;
   extent: number;
+  /** Radius of the world's actual walkable footprint, measured from the cloud. */
+  worldRadius: number;
   filled: boolean;
 }
 
@@ -47,7 +49,13 @@ export function sampleTerrain(splat: SplatMesh, flipped: boolean): Terrain {
   });
 
   if (all.length === 0) {
-    return { yOffset: 0, heights: new Float32Array(GRID * GRID), extent, filled: false };
+    return {
+      yOffset: 0,
+      heights: new Float32Array(GRID * GRID),
+      extent,
+      worldRadius: extent,
+      filled: false,
+    };
   }
 
   all.sort((a, b) => a - b);
@@ -63,10 +71,31 @@ export function sampleTerrain(splat: SplatMesh, flipped: boolean): Terrain {
     known[i] = 1;
   }
 
+  // Measure how far the world actually reaches before filling gaps, so an
+  // empty rim is not mistaken for ground the player can stand on.
+  const worldRadius = measureRadius(known);
+
   fillGaps(heights, known);
   smooth(heights);
 
-  return { yOffset: -globalFloor, heights, extent, filled: true };
+  return { yOffset: -globalFloor, heights, extent, worldRadius, filled: true };
+}
+
+/** 92nd-percentile distance of occupied cells from the centre, in world units. */
+function measureRadius(known: Uint8Array): number {
+  const dists: number[] = [];
+  const cell = (ARENA_RADIUS * 2) / GRID;
+  for (let z = 0; z < GRID; z++) {
+    for (let x = 0; x < GRID; x++) {
+      if (!known[z * GRID + x]) continue;
+      const wx = (x + 0.5 - GRID / 2) * cell;
+      const wz = (z + 0.5 - GRID / 2) * cell;
+      dists.push(Math.hypot(wx, wz));
+    }
+  }
+  if (dists.length === 0) return ARENA_RADIUS;
+  dists.sort((a, b) => a - b);
+  return dists[Math.floor(dists.length * 0.92)];
 }
 
 /** Nearest-known fill so sparse corners do not become holes in the floor. */
@@ -118,6 +147,14 @@ function smooth(heights: Float32Array): void {
 }
 
 export const TERRAIN_GRID = GRID;
+
+/** Bilinear-ish lookup into the sampled floor. */
+export function terrainHeightAt(terrain: Terrain, x: number, z: number): number {
+  const t = (v: number) => ((v + terrain.extent) / (terrain.extent * 2)) * (GRID - 1);
+  const cx = Math.min(GRID - 1, Math.max(0, Math.round(t(x))));
+  const cz = Math.min(GRID - 1, Math.max(0, Math.round(t(z))));
+  return terrain.heights[cz * GRID + cx];
+}
 
 /** Debug helper: a wireframe of the sampled floor, toggled with the ~ key. */
 export function terrainWireframe(terrain: Terrain): THREE.LineSegments {

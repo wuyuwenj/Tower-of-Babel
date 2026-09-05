@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
-import { ARENA_RADIUS } from "./balance";
-import { TERRAIN_GRID, sampleTerrain, terrainWireframe, type Terrain } from "./terrain";
+import { ARENA_RADIUS, ARENA_RADIUS_MIN } from "./balance";
+import { TERRAIN_GRID, sampleTerrain, terrainHeightAt, terrainWireframe, type Terrain } from "./terrain";
 import { resolveWorldUrl } from "./net";
 
 let rapierReady: Promise<void> | null = null;
@@ -35,6 +35,8 @@ export class World {
   private groundColliders: RAPIER.Collider[] = [];
   private wireframe: THREE.LineSegments | null = null;
   private terrain: Terrain | null = null;
+  /** Play radius for the loaded world, measured rather than assumed. */
+  arenaRadius = ARENA_RADIUS;
   private readonly downRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
   constructor(canvas: HTMLCanvasElement, physics: RAPIER.World) {
@@ -106,19 +108,73 @@ export class World {
     this.terrain = terrain.filled ? terrain : null;
     splat.position.y = spec.yOffset ?? (terrain.filled ? terrain.yOffset : 0);
 
+    // Generated worlds are not a fixed size: a Mint basin measures ~21 units
+    // across where the seed worlds are far larger. Fit the arena to the world
+    // so enemies never spawn off the edge of it.
+    this.arenaRadius = terrain.filled
+      ? Math.max(ARENA_RADIUS_MIN, Math.min(ARENA_RADIUS, terrain.worldRadius * 0.92))
+      : ARENA_RADIUS;
+
     onStage?.("Building ground");
+    let usedMesh = false;
     if (spec.colliderUrl) {
       try {
         await this.loadColliderMesh(spec.colliderUrl, splat.position.y);
+        usedMesh = this.colliderAgreesWithSplat();
+        if (!usedMesh) {
+          console.warn("collider mesh disagrees with the splat; using sampled terrain");
+          this.clearGround();
+        }
       } catch (err) {
         console.warn("collider load failed, falling back to sampled terrain", err);
-        this.buildSampledGround();
+        this.clearGround();
       }
-    } else {
-      this.buildSampledGround();
     }
+    if (!usedMesh) this.buildSampledGround();
 
     onStage?.("Ready");
+  }
+
+  /**
+   * The collider mesh ships in the world's own frame, and providers do not
+   * agree on whether that frame is flipped. The splat is the ground truth the
+   * player sees, so sanity-check the mesh against the sampled floor and throw
+   * it away if it disagrees — a mismatched collider means falling through the
+   * world or standing on nothing.
+   */
+  private colliderAgreesWithSplat(): boolean {
+    const terrain = this.terrain;
+    if (!terrain) return true; // nothing to check against; trust the mesh
+
+    const r = this.arenaRadius * 0.5;
+    const samples: Array<[number, number]> = [
+      [0, 0],
+      [r, 0],
+      [-r, 0],
+      [0, r],
+      [0, -r],
+    ];
+
+    let total = 0;
+    let hits = 0;
+    for (const [x, z] of samples) {
+      const mesh = this.groundHeight(x, z);
+      const sampled = terrainHeightAt(terrain, x, z);
+      if (!Number.isFinite(mesh)) continue;
+      total += Math.abs(mesh - sampled);
+      hits++;
+    }
+    if (hits === 0) return false;
+    return total / hits < 2.5;
+  }
+
+  private clearGround(): void {
+    for (const c of this.groundColliders) this.physics.removeCollider(c, false);
+    this.groundColliders = [];
+    if (this.groundBody) {
+      this.physics.removeRigidBody(this.groundBody);
+      this.groundBody = null;
+    }
   }
 
   /** Toggleable debug view of the floor the physics is actually using. */

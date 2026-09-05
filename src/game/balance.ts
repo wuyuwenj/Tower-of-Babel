@@ -83,10 +83,23 @@ export function xpScale(levelIndex: number): number {
 }
 
 export const WAVE_SPAWN_SECONDS = [26, 32, 20]; // per wave within a level
-export const SPAWN_RING_MIN = 18;
-export const SPAWN_RING_MAX = 26;
-export const ARENA_RADIUS = 34; // gameplay ring; world beyond this is scenery
+
+/**
+ * Play area.
+ *
+ * Generated worlds are not a fixed size — a Mint basin measured ~21 units
+ * across where the authored arena assumed 68 — so the arena is derived from
+ * each world's real walkable extent at load time and only clamped here.
+ * Enemies spawn on a ring just inside that edge.
+ */
+export const ARENA_RADIUS = 30; // preferred; shrunk to fit a smaller world
+export const ARENA_RADIUS_MIN = 9;
+export const SPAWN_RING_INNER = 0.62; // fraction of the arena radius
+export const SPAWN_RING_OUTER = 0.92;
 export const MAX_ENEMIES = 300;
+
+/** Triangle budget above which a generated creature is too heavy to swarm. */
+export const SWARM_TRIANGLE_BUDGET = 4000;
 
 export interface PlayerStats {
   maxHp: number;
