@@ -18,10 +18,15 @@ export interface LevelRecord {
   coForgers: string[];
   tally: Partial<Record<ThemeTag, number>>;
   forgeStartedAt: number | null;
+  /** What this floor's architect typed. Null for seed floors and vote-composed ones. */
+  prompt: string | null;
+  /** Their message, inscribed on the arena floor for everyone who reaches it. */
+  message: string | null;
 }
 
 export type LevelStatus =
   | "ready"
+  | "awaiting"
   | "sealed"
   | "failed"
   | "forging:composing"
@@ -30,11 +35,12 @@ export type LevelStatus =
 
 export const STATUS_LABEL: Record<LevelStatus, string> = {
   ready: "open",
+  awaiting: "awaiting architect",
   sealed: "sealed",
   failed: "forge failed",
-  "forging:composing": "composing…",
-  "forging:world": "forging world…",
-  "forging:creatures": "forging creatures…",
+  "forging:composing": "forging",
+  "forging:world": "forging",
+  "forging:creatures": "forging",
 };
 
 export function isForging(status: LevelStatus): boolean {
@@ -76,6 +82,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     coForgers: [],
     tally: {},
     forgeStartedAt: null,
+    prompt: null,
+    message: null,
   },
   {
     index: 2,
@@ -94,6 +102,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     coForgers: [],
     tally: {},
     forgeStartedAt: null,
+    prompt: null,
+    message: null,
   },
   {
     index: 3,
@@ -112,6 +122,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     coForgers: [],
     tally: {},
     forgeStartedAt: null,
+    prompt: null,
+    message: null,
   },
   {
     index: 4,
@@ -130,5 +142,7 @@ export const SEED_LEVELS: LevelRecord[] = [
     coForgers: [],
     tally: {},
     forgeStartedAt: null,
+    prompt: null,
+    message: null,
   },
 ];

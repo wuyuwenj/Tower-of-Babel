@@ -22,6 +22,12 @@ function forgeIsStale(level: { status: string; forgeStartedAt?: number }): boole
   );
 }
 
+/**
+ * How long the architect has to describe their floor before the tower writes
+ * it for them. A closed tab must not stall the rung for everyone else.
+ */
+const ARCHITECT_GRACE_MS = 120_000;
+
 /** Rungs that exist before anyone has forged anything. */
 const SEED = [
   { index: 1, theme: "haunted house", themeTag: "void", splatUrl: `${BASE}/haunted-house.spz` },
@@ -170,59 +176,9 @@ export const recordPick = mutation({
 });
 
 /**
- * Fires the forge for level N+1 the moment the first player reaches the
- * frontier's boss wave, so the ~5 minute generation finishes while people
- * are still fighting.
- *
- * This whole handler is ONE Convex transaction: two players who hit the boss
- * at the same instant cannot both insert level N+1. The second one re-runs
- * against the committed state, sees the row, and no-ops.
- */
-export const reachedBoss = mutation({
-  args: { levelIndex: v.number() },
-  handler: async (ctx, { levelIndex }) => {
-    const existing = await byIndex(ctx, levelIndex + 1);
-    if (existing && existing.status !== "failed" && !forgeIsStale(existing)) {
-      return { started: false as const, status: existing.status };
-    }
-
-    const current = await byIndex(ctx, levelIndex);
-    if (!current) return { started: false as const, status: null };
-
-    const tally = { ...current.tally };
-
-    let id;
-    if (existing) {
-      // Previous forge failed or died mid-flight; retry it with whatever the
-      // room has voted since.
-      id = existing._id;
-      await ctx.db.patch(id, {
-        status: "forging:composing",
-        tally,
-        forgeStartedAt: Date.now(),
-        error: undefined,
-      });
-    } else {
-      id = await ctx.db.insert("levels", {
-        index: levelIndex + 1,
-        theme: "unforged",
-        themeTag: "stone",
-        status: "forging:composing",
-        tally,
-        forgedBy: null,
-        coForgers: [],
-        forgeStartedAt: Date.now(),
-      });
-    }
-
-    await ctx.scheduler.runAfter(0, internal.forge.generate, { levelId: id });
-    return { started: true as const, status: "forging:composing" as const };
-  },
-});
-
-/**
- * First player to clear the frontier owns the monument. Anyone else who clears
- * it while the next level is still forging goes on the plaque beside them.
+ * First player to clear the frontier earns the next floor: the rung is created
+ * `awaiting`, owned by them, and they get to say what it is. Anyone else who
+ * clears it before that floor opens goes on the plaque beside them.
  */
 export const clearLevel = mutation({
   args: {
@@ -248,39 +204,107 @@ export const clearLevel = mutation({
 
     const next = await byIndex(ctx, levelIndex + 1);
     if (!next) {
-      // Nobody reached the boss "officially" (reachedBoss lost to the network,
-      // or the client was killed at wave 3). The clear itself is proof enough:
-      // create the rung, claim it, and start the forge. Still one transaction,
-      // so two simultaneous clears cannot both insert it.
+      // This whole handler is ONE transaction, so two players who clear at the
+      // same instant cannot both insert the rung: the loser re-runs against the
+      // committed row and falls through to the plaque below.
       const current = await byIndex(ctx, levelIndex);
-      if (!current) return { forgedBy: null, first: false };
+      if (!current) return { forgedBy: null, first: false, canWrite: false };
       const id = await ctx.db.insert("levels", {
         index: levelIndex + 1,
-        theme: "unforged",
+        theme: "unwritten",
         themeTag: "stone",
-        status: "forging:composing",
+        status: "awaiting",
         tally: { ...current.tally },
         forgedBy: user,
         coForgers: [],
+        // Starts the architect's clock; also what reapStuckForges measures.
         forgeStartedAt: Date.now(),
       });
-      await ctx.scheduler.runAfter(0, internal.forge.generate, { levelId: id });
-      return { forgedBy: user, first: true };
+      await ctx.scheduler.runAfter(ARCHITECT_GRACE_MS, internal.levels.autoForge, { levelId: id });
+      return { forgedBy: user, first: true, canWrite: true };
     }
 
     if (next.forgedBy === null) {
+      // A rung that exists but nobody owns (a seed floor, or one forged from
+      // votes by the dev button): claim the monument, but it is already written.
       const patch: { forgedBy: string; status?: "ready" } = { forgedBy: user };
       if (next.status === "sealed") patch.status = "ready";
       await ctx.db.patch(next._id, patch);
-      return { forgedBy: user, first: true };
+      return { forgedBy: user, first: true, canWrite: false };
     }
 
     if (next.forgedBy !== user && !next.coForgers.includes(user)) {
       await ctx.db.patch(next._id, { coForgers: [...next.coForgers, user] });
     }
-    return { forgedBy: next.forgedBy, first: false };
+    // The architect may reload mid-write; let them back into their own desk.
+    const canWrite = next.forgedBy === user && next.status === "awaiting";
+    return { forgedBy: next.forgedBy, first: false, canWrite };
   },
 });
+
+/**
+ * The architect's answer. Their words go to the world model as-is; the message
+ * is inscribed on the floor for everyone who climbs it afterwards.
+ *
+ * Guarded on both owner and status, so a stale tab cannot rewrite a floor that
+ * has already started forging, and nobody can write a floor they did not earn.
+ */
+export const describeLevel = mutation({
+  args: {
+    levelIndex: v.number(),
+    user: v.string(),
+    prompt: v.string(),
+    message: v.optional(v.string()),
+  },
+  handler: async (ctx, { levelIndex, user, prompt, message }) => {
+    const level = await byIndex(ctx, levelIndex);
+    if (!level) return { started: false as const, reason: "no such floor" };
+    if (level.forgedBy !== user) return { started: false as const, reason: "not yours to write" };
+    if (level.status !== "awaiting") {
+      return { started: false as const, reason: `already ${level.status}` };
+    }
+
+    const text = prompt.trim().slice(0, 240);
+    if (text.length === 0) return { started: false as const, reason: "empty prompt" };
+
+    await ctx.db.patch(level._id, {
+      prompt: text,
+      message: clean(message),
+      status: "forging:composing",
+      forgeStartedAt: Date.now(),
+      error: undefined,
+    });
+    await ctx.scheduler.runAfter(0, internal.forge.generate, { levelId: level._id });
+    return { started: true as const, reason: null };
+  },
+});
+
+/**
+ * The architect never came back. Forge the floor from the room's votes so the
+ * ladder keeps moving; a no-op if they already wrote it.
+ */
+export const autoForge = internalMutation({
+  args: { levelId: v.id("levels") },
+  handler: async (ctx, { levelId }) => {
+    const level = await ctx.db.get(levelId);
+    if (!level || level.status !== "awaiting") return false;
+    await ctx.db.patch(levelId, {
+      status: "forging:composing",
+      forgeStartedAt: Date.now(),
+      error: undefined,
+    });
+    await ctx.scheduler.runAfter(0, internal.forge.generate, { levelId });
+    return true;
+  },
+});
+
+/** One line, no control characters, short enough to read at a run. */
+function clean(message: string | undefined): string | undefined {
+  if (!message) return undefined;
+  // eslint-disable-next-line no-control-regex
+  const text = message.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  return text.length > 0 ? text.slice(0, 80) : undefined;
+}
 
 /** Sweep forges that died mid-flight so their rungs can be retried. */
 export const reapStuckForges = mutation({
@@ -289,6 +313,16 @@ export const reapStuckForges = mutation({
     const levels = await ctx.db.query("levels").withIndex("by_index").collect();
     let reaped = 0;
     for (const level of levels) {
+      // An awaiting rung whose auto-forge was lost: write it from the votes
+      // rather than leaving the ladder capped forever.
+      if (
+        level.status === "awaiting" &&
+        Date.now() - (level.forgeStartedAt ?? 0) > ARCHITECT_GRACE_MS * 2
+      ) {
+        await ctx.scheduler.runAfter(0, internal.levels.autoForge, { levelId: level._id });
+        reaped++;
+        continue;
+      }
       if (!forgeIsStale(level)) continue;
       await ctx.db.patch(level._id, {
         status: "failed",
@@ -312,10 +346,13 @@ export const recordDeath = mutation({
   },
 });
 
-/** Dev button: forge a level from a typed theme without clearing anything. */
+/**
+ * Dev button: forge a rung without clearing anything. With a prompt, this is
+ * also how floors get pre-forged before a demo.
+ */
 export const forgeNow = mutation({
-  args: { tag: themeTag },
-  handler: async (ctx, { tag }) => {
+  args: { tag: themeTag, prompt: v.optional(v.string()), message: v.optional(v.string()) },
+  handler: async (ctx, { tag, prompt, message }) => {
     const levels = await ctx.db.query("levels").withIndex("by_index").collect();
     const nextIndex = levels.reduce((m, l) => Math.max(m, l.index), 0) + 1;
     const id = await ctx.db.insert("levels", {
@@ -324,6 +361,8 @@ export const forgeNow = mutation({
       themeTag: "stone",
       status: "forging:composing",
       tally: { [tag]: 1 },
+      prompt: prompt?.trim().slice(0, 240) || undefined,
+      message: clean(message),
       forgedBy: null,
       coForgers: [],
       forgeStartedAt: Date.now(),

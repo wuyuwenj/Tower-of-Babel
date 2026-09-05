@@ -6,6 +6,7 @@ import { Combat } from "./combat";
 import { Director } from "./director";
 import { Enemies } from "./enemies";
 import { loadInstanceable } from "./models";
+import { buildInscription } from "./inscription";
 import { buildMonument } from "./monument";
 import { Player } from "./player";
 import { Waves } from "./waves";
@@ -24,6 +25,8 @@ export interface LevelSpec extends WorldSpec {
   monumentUrl?: string | null;
   forgedBy?: string | null;
   coForgers?: string[];
+  /** What the architect wrote on this floor for everyone who reaches it. */
+  message?: string | null;
   themeTag: ThemeTag;
   composition: Archetype[][] | null;
   cardSkins: CardSkin[] | null;
@@ -53,6 +56,7 @@ export class Game {
   private fpsAccum = 0;
   private fpsFrames = 0;
   private monument: THREE.Group | null = null;
+  private inscription: THREE.Group | null = null;
 
   private constructor(world: World) {
     this.world = world;
@@ -94,6 +98,18 @@ export class Game {
     const model = await loadInstanceable(enemyUrl, CREATURE_HEIGHT);
     if (model) this.enemies.setModel(model.geometry, model.material);
     else this.enemies.resetModel();
+
+    // The message this floor's architect left, lying across the spawn.
+    if (this.inscription) {
+      this.world.scene.remove(this.inscription);
+      this.inscription = null;
+    }
+    if (spec.message) {
+      const inscription = buildInscription(spec.message, spec.forgedBy ?? null, color);
+      inscription.position.set(0, this.world.groundHeight(0, 0) + 0.05, 0);
+      this.world.scene.add(inscription);
+      this.inscription = inscription;
+    }
 
     // The monument to whoever forged this level, standing beside the spawn.
     if (this.monument) {

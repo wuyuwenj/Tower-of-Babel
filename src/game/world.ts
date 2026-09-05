@@ -45,6 +45,15 @@ export class World {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(0x05060a);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    // Tone mapping is opt-in until it has been eyeballed against a real splat:
+    // the worlds arrive as baked sRGB radiance, and a filmic curve may flatten
+    // them. ?tonemap=aces | neutral to compare; default leaves them untouched.
+    const tonemap = new URLSearchParams(location.search).get("tonemap");
+    if (tonemap === "aces") this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    if (tonemap === "neutral") this.renderer.toneMapping = THREE.NeutralToneMapping;
+    if (tonemap) this.renderer.toneMappingExposure = 1.05;
 
     this.camera = new THREE.PerspectiveCamera(
       55,
@@ -57,10 +66,21 @@ export class World {
     this.spark = new SparkRenderer({ renderer: this.renderer });
     this.scene.add(this.spark);
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 1.9));
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    // Lights only touch the meshes — creatures, monument, orbs — never the
+    // splat, which is its own baked light. A small stack instead of one flat
+    // white ambient: warm key for form, cool fill so shadow sides stay legible,
+    // and a rim from behind the camera's far side so a dark creature on a dark
+    // floor still has an edge.
+    this.scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x2a1e14, 1.1));
+    const key = new THREE.DirectionalLight(0xfff1d6, 2.4);
     key.position.set(12, 24, 8);
     this.scene.add(key);
+    const fill = new THREE.DirectionalLight(0x8fb8ff, 0.8);
+    fill.position.set(-14, 10, -6);
+    this.scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffffff, 1.2);
+    rim.position.set(0, 9, -20);
+    this.scene.add(rim);
 
     window.addEventListener("resize", this.onResize);
   }

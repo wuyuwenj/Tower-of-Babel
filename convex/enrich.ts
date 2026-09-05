@@ -20,7 +20,19 @@ interface Flavor {
   cardNames?: string[];
 }
 
-export async function enrich(base: Composition, tally: Record<string, number>): Promise<Composition> {
+export interface EnrichOptions {
+  /**
+   * The world prompt was written by a player. Reword the creatures and the
+   * monument to match it, but never touch their own words.
+   */
+  keepWorldPrompt?: boolean;
+}
+
+export async function enrich(
+  base: Composition,
+  tally: Record<string, number>,
+  opts: EnrichOptions = {},
+): Promise<Composition> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return base;
 
@@ -39,7 +51,10 @@ export async function enrich(base: Composition, tally: Record<string, number>): 
   const user = [
     `Players voted for these themes: ${votes}.`,
     `Working theme name: "${base.theme}".`,
-    "Rewrite the following into fresher wording for this exact same theme.",
+    opts.keepWorldPrompt
+      ? "A player wrote the world below. Keep it EXACTLY as it is and return it unchanged. " +
+        "Rewrite only the creature, the monument and the card names so they belong in that world."
+      : "Rewrite the following into fresher wording for this exact same theme.",
     `worldPrompt: ${base.worldPrompt}`,
     `enemyPrompt: ${base.enemyPrompt}`,
     `monumentPrompt: ${base.monumentPrompt}`,
@@ -77,6 +92,8 @@ export async function enrich(base: Composition, tally: Record<string, number>): 
     if (!content) return base;
 
     const flavor = JSON.parse(content) as Flavor;
+    // The architect's own words are never overwritten, whatever the model says.
+    if (opts.keepWorldPrompt) flavor.worldPrompt = undefined;
     return merge(base, flavor);
   } catch (err) {
     console.warn("enrich failed, keeping composed flavor:", err);

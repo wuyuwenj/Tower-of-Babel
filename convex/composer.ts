@@ -208,3 +208,78 @@ export function compose(tally: Record<string, number>): Composition {
     ],
   };
 }
+
+/**
+ * Keywords that map an architect's own words onto a theme tag. The tag never
+ * touches the world prompt — it only picks which creature, monument, and card
+ * set the floor gets, so a miss is cosmetic rather than broken.
+ */
+const TAG_WORDS: Array<[ThemeTag, string[]]> = [
+  ["fire", ["fire", "lava", "magma", "volcan", "ember", "ash", "burn", "flame", "forge", "furnace", "molten", "scorch", "inferno", "coal", "smoke"]],
+  ["ice", ["ice", "frost", "frozen", "snow", "glacier", "arctic", "winter", "cold", "polar", "tundra", "blizzard", "rime"]],
+  ["void", ["void", "dark", "shadow", "haunt", "ghost", "night", "grave", "crypt", "abyss", "eldritch", "nightmare", "black", "spectral", "cursed", "moon"]],
+  ["nature", ["forest", "jungle", "tree", "moss", "vine", "garden", "grove", "swamp", "flower", "leaf", "overgrown", "meadow", "reef", "coral", "bloom", "root"]],
+  ["tech", ["tech", "neon", "cyber", "robot", "machine", "space", "station", "ship", "lab", "reactor", "circuit", "server", "steel", "chrome", "orbital", "hangar", "clockwork", "brass"]],
+  ["stone", ["stone", "ruin", "temple", "castle", "marble", "granite", "colosseum", "monastery", "quarry", "cathedral", "pillar", "masonry", "tomb", "hall"]],
+];
+
+/**
+ * Appended to an architect's prompt. The world model will happily produce a
+ * beautiful room with nowhere to stand; the fight needs open ground.
+ */
+const ARENA_SUFFIX =
+  ", wide open walkable floor in the centre, room to move around, no clutter in the middle";
+
+/** The tag whose words appear most often in the architect's text. */
+function tagFor(prompt: string, tally: Record<string, number>): ThemeTag {
+  const text = prompt.toLowerCase();
+  let best: ThemeTag | null = null;
+  let bestHits = 0;
+  for (const [tag, words] of TAG_WORDS) {
+    const hits = words.reduce((n, w) => (text.includes(w) ? n + 1 : n), 0);
+    if (hits > bestHits) {
+      best = tag;
+      bestHits = hits;
+    }
+  }
+  // Nothing recognisable in the text: fall back to what the room voted for.
+  return best ?? topTags(tally)[0];
+}
+
+/** A short label for the HUD and the ladder, derived from what they wrote. */
+function shortName(prompt: string, fallback: string): string {
+  const words = prompt
+    .replace(/^(a|an|the)\s+/i, "")
+    .split(/[,.]/)[0]
+    .trim()
+    .split(/\s+/)
+    .slice(0, 4)
+    .join(" ");
+  return words.length >= 3 ? words.toLowerCase().slice(0, 40) : fallback;
+}
+
+/**
+ * A floor written by the player who earned it. Their words go to the world
+ * model as-is; everything else — creature, monument, waves, cards — still comes
+ * from the deterministic table, so a one-word prompt yields a playable floor.
+ */
+export function composeFromPrompt(prompt: string, tally: Record<string, number>): Composition {
+  const text = prompt.trim().slice(0, 240);
+  const tag = tagFor(text, tally);
+  const theme = THEMES[tag];
+
+  return {
+    theme: shortName(text, theme.name),
+    themeTag: tag,
+    worldPrompt: `${text}${ARENA_SUFFIX}`,
+    enemyPrompt: theme.enemy,
+    monumentPrompt: theme.monument,
+    composition: theme.waves,
+    cardSkins: theme.cards.map(([slot, name, description]) => ({
+      slot,
+      name,
+      description,
+      tag,
+    })),
+  };
+}

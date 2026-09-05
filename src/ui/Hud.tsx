@@ -23,7 +23,17 @@ export function Hud(props: Props) {
     <div className="hud">
       <div className="hud-top">
         <div className="wave-chip">
-          Level {props.levelIndex} · {props.themeLabel} · Wave {props.wave}/{props.wavesPerLevel}
+          <span>
+            Floor {props.levelIndex} · {props.themeLabel}
+          </span>
+          <span className="wave-pips" title={`Wave ${props.wave} of ${props.wavesPerLevel}`}>
+            {Array.from({ length: props.wavesPerLevel }, (_, i) => (
+              <i
+                key={i}
+                className={[i < props.wave ? "on" : "", i === props.wavesPerLevel - 1 ? "boss" : ""].join(" ")}
+              />
+            ))}
+          </span>
         </div>
         {props.boss && (
           <>
@@ -61,7 +71,7 @@ export function Hud(props: Props) {
         <div className="forge-banner">
           <span className="pulse" />
           <span>
-            Level {props.forging.index} is being forged
+            Floor {props.forging.index} is being forged
             {props.forging.theme !== "unforged" ? ` — ${props.forging.theme}` : ""}
           </span>
           <span className="stage">
@@ -78,7 +88,7 @@ export function Hud(props: Props) {
             Reset
           </button>
         </div>
-        <div style={{ marginTop: 8, opacity: 0.6 }}>WASD move · Q/E turn · ` floor</div>
+        <div style={{ marginTop: 8, opacity: 0.6 }}>WASD move · Space jump · Q/E turn · ` floor</div>
       </div>
     </div>
   );
