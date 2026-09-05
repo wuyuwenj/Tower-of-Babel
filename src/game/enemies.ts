@@ -9,6 +9,7 @@ import {
   hpScale,
   type Archetype,
 } from "./balance";
+import { animateMaterial, type CreatureAnimation } from "./models";
 import type { World } from "./world";
 
 const CAPACITY: Record<Archetype, number> = { swarm: 220, fast: 120, tank: 48, boss: 4 };
@@ -77,6 +78,9 @@ export class Enemies {
   private generatedFor = new Set<Archetype>();
   /** Instances actually written this frame, per archetype — the draw count. */
   private drawn = new Map<Archetype, number>();
+  /** The creature's baked walk, when it has one; the shared clock drives every instance. */
+  private animation: CreatureAnimation | null = null;
+  private animClock = { value: 0 };
 
   constructor(world: World) {
     this.world = world;
@@ -106,16 +110,30 @@ export class Enemies {
     mesh.frustumCulled = false;
     const colors = new Float32Array(cap * 3).fill(1);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+    if (geom.getAttribute("skinIndex")) {
+      // Per-instance (phase, rate): each creature walks on its own beat.
+      const anim = new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2);
+      anim.setUsage(THREE.DynamicDrawUsage);
+      geom.setAttribute("aAnim", anim);
+    }
     this.world.scene.add(mesh);
     this.meshes.set(archetype, mesh);
   }
 
   /**
-   * Swap in a Tripo-generated creature. Called at level load, when nothing is
+   * Swap in a generated creature. Called at level load, when nothing is
    * alive, so rebuilding the instanced meshes is safe.
-   * `generated` geometry is already normalized to 1 unit tall and origin-on-floor.
+   * `geometry` is already normalized to CREATURE_HEIGHT and origin-on-floor.
+   * With `animation`, the geometry carries skin attributes and every
+   * generated archetype plays the baked walk (see models.ts).
    */
-  setModel(geometry: THREE.BufferGeometry, material: THREE.Material): void {
+  setModel(
+    geometry: THREE.BufferGeometry,
+    material: THREE.Material,
+    animation: CreatureAnimation | null = null,
+  ): void {
+    this.animation?.texture.dispose();
+    this.animation = animation;
     // Indexed geometry stores unique vertices, so position.count is not 3x the
     // triangle count — reading it directly undercounts a merged creature ~2.5x.
     const index = geometry.getIndex();
@@ -138,6 +156,8 @@ export class Enemies {
         if (mat instanceof THREE.MeshStandardMaterial) {
           mat.emissive = new THREE.Color(this.themeColor);
           mat.emissiveIntensity = CREATURE_GLOW;
+          // clone() drops onBeforeCompile, so the walk is wired here, per material.
+          if (animation) animateMaterial(mat, animation, this.animClock);
         }
       } else {
         mat = defaultMaterial();
@@ -152,6 +172,8 @@ export class Enemies {
 
   /** Restore the stock shapes (used when a level has no generated creature). */
   resetModel(): void {
+    this.animation?.texture.dispose();
+    this.animation = null;
     if (!this.generated) return;
     for (const archetype of Object.keys(ARCHETYPES) as Archetype[]) {
       this.build(archetype, defaultGeometry(archetype), defaultMaterial());
@@ -299,13 +321,19 @@ export class Enemies {
 
       // Stagger ground sampling: each enemy re-samples a few times a second.
       if ((frame + e.slot) % 12 === 0) e.ground = this.world.groundHeight(e.x, e.z);
-      const hop = e.archetype === "tank" ? 0.06 : 0.16;
-      e.y = e.ground + Math.abs(Math.sin(time * 6 + e.phase)) * hop;
+      // A walking creature carries its own motion; the hop is for shapes that can't.
+      if (this.animation && this.generatedFor.has(e.archetype)) {
+        e.y = e.ground;
+      } else {
+        const hop = e.archetype === "tank" ? 0.06 : 0.16;
+        e.y = e.ground + Math.abs(Math.sin(time * 6 + e.phase)) * hop;
+      }
 
       if (dist < e.radius + targetRadius) contactDamage += e.damage * dt;
       if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
     }
 
+    this.animClock.value = time;
     this.writeInstances();
     return contactDamage;
   }
@@ -376,6 +404,13 @@ export class Enemies {
         this.tint.copy(BASE_COLOR[e.archetype]).lerp(this.themeColor, 0.35);
       }
       mesh.setColorAt(index, this.tint);
+
+      const anim = mesh.geometry.getAttribute("aAnim") as THREE.InstancedBufferAttribute | undefined;
+      if (anim) {
+        // Offset the loop by the enemy's phase and pace it to its speed, so a
+        // crowd never marches in lockstep and the fast ones actually hurry.
+        anim.setXY(index, e.phase, THREE.MathUtils.clamp(e.speed / ARCHETYPES.swarm.speed, 0.6, 1.8));
+      }
       this.drawn.set(e.archetype, index + 1);
     }
 
@@ -385,6 +420,8 @@ export class Enemies {
       if (count === 0) continue;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      const anim = mesh.geometry.getAttribute("aAnim");
+      if (anim) anim.needsUpdate = true;
     }
   }
 
@@ -399,6 +436,8 @@ export class Enemies {
 
   dispose(): void {
     this.clear();
+    this.animation?.texture.dispose();
+    this.animation = null;
     for (const mesh of this.meshes.values()) {
       this.world.scene.remove(mesh);
       mesh.geometry.dispose();
