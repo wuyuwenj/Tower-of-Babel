@@ -96,7 +96,7 @@ export class Game {
     const enemyUrl = spec.enemyUrl ?? `/creatures/${spec.themeTag}.glb`;
     this.bus.emit("loading", { stage: "Loading creatures", done: false });
     const model = await loadInstanceable(enemyUrl, CREATURE_HEIGHT);
-    if (model) this.enemies.setModel(model.geometry, model.material);
+    if (model) this.enemies.setModel(model.geometry, model.material, model.animation);
     else this.enemies.resetModel();
 
     // The message this floor's architect left, lying across the spawn.
