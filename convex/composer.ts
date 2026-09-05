@@ -150,8 +150,10 @@ const MASHUP_NAMES: Record<string, string> = {
  * generated geometry agree with the collision it is going to get.
  */
 export const ARENA_CLAUSE =
-  "the centre of the scene is a large flat clear open floor with nothing standing on it; " +
-  "all walls, structures, props and obstacles sit around the outer edge, facing inward";
+  "at the exact centre of the scene is a wide, completely empty circular clearing, flat and " +
+  "unobstructed, at least thirty metres across, with nothing at all standing inside it; every " +
+  "wall, building, structure, prop and obstacle stands in a ring around the edge of that " +
+  "clearing, facing inward";
 
 export function withArena(prompt: string): string {
   return prompt.includes(ARENA_CLAUSE) ? prompt : `${prompt}, ${ARENA_CLAUSE}`;
