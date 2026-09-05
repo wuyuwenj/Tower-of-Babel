@@ -7,6 +7,8 @@ export interface LevelRecord {
   themeTag: ThemeTag;
   splatUrl: string;
   colliderUrl: string | null;
+  enemyUrl: string | null;
+  monumentUrl: string | null;
   yOffset: number;
   scale: number;
   composition: Archetype[][] | null;
@@ -52,6 +54,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     themeTag: "void",
     splatUrl: `${BASE}/haunted-house.spz`,
     colliderUrl: null,
+    enemyUrl: null,
+    monumentUrl: null,
     yOffset: 0,
     scale: 1,
     composition: null,
@@ -68,6 +72,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     themeTag: "stone",
     splatUrl: `${BASE}/cozy_ship.spz`,
     colliderUrl: null,
+    enemyUrl: null,
+    monumentUrl: null,
     yOffset: 0,
     scale: 1,
     composition: null,
@@ -84,6 +90,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     themeTag: "nature",
     splatUrl: `${BASE}/cozy_cottage.spz`,
     colliderUrl: null,
+    enemyUrl: null,
+    monumentUrl: null,
     yOffset: 0,
     scale: 1,
     composition: null,
@@ -100,6 +108,8 @@ export const SEED_LEVELS: LevelRecord[] = [
     themeTag: "tech",
     splatUrl: `${BASE}/cozy-spaceship_2.spz`,
     colliderUrl: null,
+    enemyUrl: null,
+    monumentUrl: null,
     yOffset: 0,
     scale: 1,
     composition: null,

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Game, type CardOffer } from "./game";
 import type { ThemeTag } from "./game/balance";
-import { SEED_LEVELS, type LevelRecord } from "./levels";
+import type { LevelRecord } from "./levels";
+import { useLadder } from "./useLadder";
 import { Cards } from "./ui/Cards";
 import { ClearScreen } from "./ui/ClearScreen";
 import { Hud } from "./ui/Hud";
@@ -12,10 +13,13 @@ type Phase = "ladder" | "loading" | "playing" | "ended";
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
+  const currentRef = useRef<LevelRecord | null>(null);
+
+  const ladder = useLadder();
+  const ladderRef = useRef(ladder);
+  ladderRef.current = ladder;
 
   const [phase, setPhase] = useState<Phase>("ladder");
-  const [levels, setLevels] = useState<LevelRecord[]>(SEED_LEVELS);
-  const [maxCleared, setMaxCleared] = useState(0);
   const [current, setCurrent] = useState<LevelRecord | null>(null);
   const [loadStage, setLoadStage] = useState("Preparing");
 
@@ -42,57 +46,71 @@ export default function App() {
   useEffect(() => {
     let disposed = false;
     if (!canvasRef.current) return;
+
     Game.create(canvasRef.current).then((game) => {
       if (disposed) {
         game.dispose();
         return;
       }
       gameRef.current = game;
+
       game.bus.on("hp", setHp);
       game.bus.on("xp", setXp);
-      game.bus.on("wave", setWave);
       game.bus.on("boss", setBoss);
       game.bus.on("fps", (f) => setFps(f.value));
       game.bus.on("loading", (l) => setLoadStage(l.stage));
       game.bus.on("levelup", (e) => setOffers(e.offers));
-      game.bus.on("pick", (e) => recordPick(e.tag));
-      game.bus.on("clear", (e) => {
+
+      game.bus.on("wave", (w) => {
+        setWave(w);
+        // The forge starts the moment the first player reaches the boss, so the
+        // ~5 minute generation lands about when someone finishes the level.
+        if (w.wave >= w.wavesPerLevel && currentRef.current) {
+          ladderRef.current.reachedBoss(currentRef.current.index);
+        }
+      });
+
+      game.bus.on("pick", (e) => {
+        if (currentRef.current) ladderRef.current.recordPick(currentRef.current.index, e.tag);
+      });
+
+      game.bus.on("clear", async (e) => {
         setResult({ ...e, cleared: true, message: null });
         setPhase("ended");
-        onCleared(e.levelIndex, e.score);
+        const owner = await ladderRef.current.clearLevel(e.levelIndex, e.score, e.timeSeconds);
+        setResult((r) =>
+          r
+            ? {
+                ...r,
+                message:
+                  owner === ladderRef.current.user
+                    ? `You reached the frontier first. Level ${e.levelIndex + 1} carries your monument.`
+                    : owner
+                      ? `${owner} got here first — you are on the plaque of level ${e.levelIndex + 1}.`
+                      : null,
+              }
+            : r,
+        );
       });
+
       game.bus.on("death", (e) => {
         setResult({ ...e, cleared: false, message: null });
         setPhase("ended");
+        ladderRef.current.recordDeath(e.levelIndex, e.score, e.timeSeconds);
       });
     });
+
     return () => {
       disposed = true;
       gameRef.current?.dispose();
       gameRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /** Every upgrade pick votes on the frontier level's theme. */
-  const recordPick = useCallback((tag: ThemeTag) => {
-    setLevels((prev) => {
-      const frontierIndex = prev.reduce((m, l) => Math.max(m, l.index), 0);
-      return prev.map((l) =>
-        l.index === frontierIndex
-          ? { ...l, tally: { ...l.tally, [tag]: (l.tally[tag] ?? 0) + 1 } }
-          : l,
-      );
-    });
-  }, []);
-
-  const onCleared = useCallback((levelIndex: number, _score: number) => {
-    setMaxCleared((m) => Math.max(m, levelIndex));
   }, []);
 
   const play = useCallback(async (level: LevelRecord) => {
     const game = gameRef.current;
     if (!game) return;
+    currentRef.current = level;
     setCurrent(level);
     setOffers(null);
     setResult(null);
@@ -102,6 +120,8 @@ export default function App() {
       themeTag: level.themeTag,
       splatUrl: level.splatUrl,
       colliderUrl: level.colliderUrl,
+      enemyUrl: level.enemyUrl,
+      monumentUrl: level.monumentUrl,
       yOffset: level.yOffset,
       scale: level.scale,
       composition: level.composition,
@@ -120,6 +140,8 @@ export default function App() {
     setOffers(null);
     setResult(null);
   }, []);
+
+  const forge = useCallback((tag: ThemeTag) => ladder.forgeNow(tag), [ladder]);
 
   return (
     <>
@@ -153,7 +175,15 @@ export default function App() {
       )}
 
       {phase === "ladder" && (
-        <Ladder levels={levels} maxCleared={maxCleared} onPlay={play} now={now} />
+        <Ladder
+          levels={ladder.levels}
+          maxCleared={ladder.maxCleared}
+          onPlay={play}
+          now={now}
+          shared={ladder.shared}
+          user={ladder.user}
+          onForge={forge}
+        />
       )}
 
       {phase === "ended" && result && (

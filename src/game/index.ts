@@ -11,6 +11,8 @@ import { World, type WorldSpec } from "./world";
 
 export interface LevelSpec extends WorldSpec {
   levelIndex: number;
+  enemyUrl?: string | null;
+  monumentUrl?: string | null;
   themeTag: ThemeTag;
   composition: Archetype[][] | null;
   cardSkins: CardSkin[] | null;

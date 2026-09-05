@@ -1,3 +1,4 @@
+import { THEME_TAGS, type ThemeTag } from "../game/balance";
 import { STATUS_LABEL, isForging, type LevelRecord } from "../levels";
 
 interface Props {
@@ -5,9 +6,12 @@ interface Props {
   maxCleared: number;
   onPlay: (level: LevelRecord) => void;
   now: number;
+  shared: boolean;
+  user: string;
+  onForge: (tag: ThemeTag) => void;
 }
 
-export function Ladder({ levels, maxCleared, onPlay, now }: Props) {
+export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onForge }: Props) {
   const frontier = Math.min(maxCleared + 1, levels.length);
 
   return (
@@ -76,6 +80,24 @@ export function Ladder({ levels, maxCleared, onPlay, now }: Props) {
               </button>
             );
           })}
+        </div>
+
+        <div className="row">
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            {shared ? "Shared tower" : "Local tower — run `npx convex dev` to share it"} · you are{" "}
+            <strong style={{ color: "var(--gold)" }}>{user}</strong>
+          </span>
+          <div className="spacer" />
+          {shared && (
+            <>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>force a forge:</span>
+              {THEME_TAGS.map((tag) => (
+                <button key={tag} className="ghost" onClick={() => onForge(tag)}>
+                  {tag}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>
