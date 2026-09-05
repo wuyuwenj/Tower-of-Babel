@@ -143,6 +143,16 @@ const MASHUP_NAMES: Record<string, string> = {
 
 export const THEME_TAGS: ThemeTag[] = ["fire", "ice", "void", "nature", "tech", "stone"];
 
+/**
+ * Appended to every creature prompt at generation time — after enrich(), which
+ * is free to reword the flavor and would otherwise drop these constraints.
+ * A forged enemy is instanced a few hundred times and normalized to 1 unit
+ * tall, so it has to be one clean full-body figure with no plinth: the same
+ * wording the baked creatures in public/creatures were made with.
+ */
+export const CREATURE_SUFFIX =
+  ", single creature, full body, standing on the ground, facing forward, game asset, clean silhouette, no base, no background";
+
 function topTags(tally: Record<string, number>): ThemeTag[] {
   const entries = THEME_TAGS.map((t) => [t, tally[t] ?? 0] as const)
     .filter(([, n]) => n > 0)

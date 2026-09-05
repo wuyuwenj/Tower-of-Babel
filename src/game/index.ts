@@ -11,6 +11,13 @@ import { Player } from "./player";
 import { Waves } from "./waves";
 import { World, type WorldSpec } from "./world";
 
+/**
+ * Height a generated creature is normalized to, before its archetype scale.
+ * The player capsule is 1.94 tall, so a swarm enemy (0.9x) lands at 1.35 —
+ * clearly a creature rather than the speck that 1.0 produced.
+ */
+const CREATURE_HEIGHT = 1.5;
+
 export interface LevelSpec extends WorldSpec {
   levelIndex: number;
   enemyUrl?: string | null;
@@ -80,15 +87,13 @@ export class Game {
     this.enemies.setArena(this.world.arenaRadius);
     this.combat.setThemeColor(color);
 
-    // Generated creature, if this level has one. Falls back to stock shapes.
-    if (spec.enemyUrl) {
-      this.bus.emit("loading", { stage: "Loading creatures", done: false });
-      const model = await loadInstanceable(spec.enemyUrl, 1.0);
-      if (model) this.enemies.setModel(model.geometry, model.material);
-      else this.enemies.resetModel();
-    } else {
-      this.enemies.resetModel();
-    }
+    // This level's forged creature, else the baked one for its theme. Stock
+    // shapes are the last resort: a dead provider URL must not empty the level.
+    const enemyUrl = spec.enemyUrl ?? `/creatures/${spec.themeTag}.glb`;
+    this.bus.emit("loading", { stage: "Loading creatures", done: false });
+    const model = await loadInstanceable(enemyUrl, CREATURE_HEIGHT);
+    if (model) this.enemies.setModel(model.geometry, model.material);
+    else this.enemies.resetModel();
 
     // The monument to whoever forged this level, standing beside the spawn.
     if (this.monument) {

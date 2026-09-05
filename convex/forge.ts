@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { compose } from "./composer";
+import { compose, CREATURE_SUFFIX } from "./composer";
 import { enrich } from "./enrich";
 import * as mint from "./mint";
 
@@ -57,9 +57,11 @@ export const generate = internalAction({
         status: "forging:creatures",
       });
 
-      // 3. What lives in it, generated in parallel.
+      // 3. What lives in it, generated in parallel. The creature carries the
+      // extra constraints because it gets instanced and normalized; the
+      // monument stands alone and is fine as composed.
       const [enemyUrl, monumentUrl] = await Promise.all([
-        generateModel(spec.enemyPrompt, level.providerEnemyId, async (id) => {
+        generateModel(spec.enemyPrompt + CREATURE_SUFFIX, level.providerEnemyId, async (id) => {
           await ctx.runMutation(internal.levels.rememberProvider, {
             levelId,
             providerEnemyId: id,
@@ -190,9 +192,14 @@ async function generateModel(
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "text_to_model",
-        model_version: "v3.1",
+        // Verified against the API: "v3.1" is rejected with code 2017, and
+        // v2.0 / Turbo-v1.0 are deprecated. v3.0-20250812 is current.
+        model_version: "v3.0-20250812",
         prompt: prompt.slice(0, 900),
         texture: true,
+        pbr: true,
+        // These get instanced a few hundred times; cap the triangle budget.
+        face_limit: 20000,
       }),
     });
 
@@ -213,8 +220,13 @@ async function generateModel(
       { timeoutMs: 5 * 60_000, intervalMs: 3_000, label: "tripo" },
     );
 
-    const urls = collectUrls(done);
-    return urls.find((u) => u.toLowerCase().includes(".glb")) ?? null;
+    // Take the model field explicitly: collectUrls would happily return the
+    // rendered preview image or a thumbnail that happens to sort first.
+    const output = ((done.data ?? {}) as Json).output as Json | undefined;
+    const model =
+      pickString(output ?? {}, ["pbr_model", "model", "base_model"]) ??
+      collectUrls(done).find((u) => u.toLowerCase().includes(".glb"));
+    return model ?? null;
   } catch (err) {
     // A missing creature is survivable; the level falls back to stock enemies.
     console.warn("tripo generation failed:", err);
