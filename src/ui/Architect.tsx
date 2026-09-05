@@ -56,7 +56,7 @@ export function Architect({ floor, tally, deadline, now, forged, onForge }: Prop
   return (
     <div className="architect">
       <div className="drawing-no">
-        <span>Drawing Nº {floor.toString().padStart(2, "0")} · specification</span>
+        <span>Chapter {floor.toString().padStart(2, "0")} · to be written</span>
         <span>architect: you</span>
       </div>
       <div className="field">

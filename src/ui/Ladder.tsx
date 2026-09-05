@@ -36,7 +36,7 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onRename
       <div className="panel start">
         <header className="hero">
           <div>
-            <div className="kicker">Tower of Babel · Sheet 01 · Elevation</div>
+            <div className="kicker">Tower of Babel · Chapter the first · the ascent</div>
             <h1>A tower with no architect.</h1>
             <p className="sub">Climb it. The top is yours to build.</p>
           </div>
@@ -81,7 +81,7 @@ export function Ladder({ levels, maxCleared, onPlay, now, shared, user, onRename
           <span className="dot">·</span>
           <span>{shared ? "Shared tower" : "Local tower — run `npx convex dev` to share it"}</span>
           <div className="spacer" />
-          <span className="sheet">drawn by whoever climbs highest</span>
+          <span className="sheet">written by whoever climbs highest</span>
           {DEV && shared && (
             <>
               <span>force a forge:</span>
