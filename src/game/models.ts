@@ -44,7 +44,9 @@ export async function loadInstanceable(
         const count = geom.getAttribute("position").count;
         geom.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(count * 2), 2));
       }
-      parts.push(geom.toNonIndexed());
+      // Keep the index when there is a single part: expanding an indexed
+      // 19k-triangle mesh triples its vertex memory for nothing.
+      parts.push(geom);
       if (!material) {
         const m = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         material = m;
@@ -53,8 +55,8 @@ export async function loadInstanceable(
 
     if (parts.length === 0) return null;
 
-    const merged = mergeGeometries(parts);
-    for (const p of parts) p.dispose();
+    const merged = parts.length === 1 ? parts[0] : mergeGeometries(parts.map((p) => p.toNonIndexed()));
+    for (const p of parts) if (p !== merged) p.dispose();
 
     merged.computeBoundingBox();
     const box = merged.boundingBox!;

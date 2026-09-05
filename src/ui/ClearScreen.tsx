@@ -1,5 +1,9 @@
+import type { RunRow } from "../useLadder";
+
 interface Props {
   cleared: boolean;
+  runs: RunRow[];
+  user: string;
   levelIndex: number;
   score: number;
   timeSeconds: number;
@@ -23,6 +27,31 @@ export function ClearScreen(props: Props) {
             {props.message}
           </p>
         )}
+        {props.runs.length > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <div className="bar-label" style={{ marginBottom: 8 }}>
+              <span>BEST ON THIS RUNG</span>
+            </div>
+            {props.runs.slice(0, 5).map((run, i) => (
+              <div
+                key={`${run.user}-${i}`}
+                className="row"
+                style={{
+                  fontSize: 13,
+                  padding: "5px 0",
+                  color: run.user === props.user ? "var(--gold)" : "var(--muted)",
+                  borderBottom: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                <span style={{ width: 22, opacity: 0.6 }}>{i + 1}</span>
+                <span>{run.user}</span>
+                <div className="spacer" />
+                <span>{run.score}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 24 }}>
           <button className="primary" onClick={props.onRetry}>
             {props.cleared ? "Climb again" : "Retry level"}

@@ -139,6 +139,35 @@ button.ghost:hover { color: var(--text); border-color: var(--gold); }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 
+/* The money shot: while you fight the boss, the next world is being built. */
+.forge-banner {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 198, 122, 0.4);
+  background: rgba(12, 14, 22, 0.9);
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.forge-banner .stage { color: var(--gold); font-variant-numeric: tabular-nums; }
+.forge-banner .pulse {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--gold);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
 .loading {
   position: fixed; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px;
