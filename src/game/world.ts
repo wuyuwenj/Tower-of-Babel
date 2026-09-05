@@ -176,6 +176,10 @@ export class World {
     }
     if (!usedMesh) this.buildSampledGround();
 
+    // A collider mesh knows where the walls are, which the splat cloud never
+    // did. Fit the ring to the room the mesh actually encloses.
+    if (usedMesh) this.arenaRadius = resolveArenaRadius(spec, this.fitArenaToCollider());
+
     // After the ground, so the wall can sit on the floor it actually found.
     this.buildArenaWall();
 
@@ -213,6 +217,36 @@ export class World {
     }
     if (hits === 0) return false;
     return total / hits < 2.5;
+  }
+
+  /**
+   * Radius of the largest mostly-clear disc around the spawn, measured by
+   * casting rays outward against the collider mesh at knee height. The 20th
+   * percentile of wall distances is used so one doorway cannot inflate the
+   * ring and one pillar cannot collapse it: four directions in five are clear
+   * to at least this far. Rays start just outside the player's own capsule.
+   */
+  private fitArenaToCollider(): number {
+    const N = 64;
+    const start = 1.0;
+    const y = this.groundHeight(0, 0) + 0.9;
+    const ray = new RAPIER.Ray({ x: 0, y, z: 0 }, { x: 1, y: 0, z: 0 });
+    const dists: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      ray.origin.x = dx * start;
+      ray.origin.z = dz * start;
+      ray.dir.x = dx;
+      ray.dir.z = dz;
+      const hit = this.physics.castRay(ray, ARENA_RADIUS, true);
+      dists.push(hit ? start + hit.timeOfImpact : ARENA_RADIUS);
+    }
+    dists.sort((a, b) => a - b);
+    // Stand the ring half a metre off the nearest wall it is fitted to.
+    const fitted = dists[Math.floor(N * 0.2)] - 0.5;
+    return Math.max(ARENA_RADIUS_MIN, Math.min(ARENA_RADIUS, fitted));
   }
 
   private clearGround(): void {
