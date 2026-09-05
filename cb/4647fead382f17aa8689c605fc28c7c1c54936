@@ -1,0 +1,19 @@
+scripts/measure-clearing.mjs
+  s_9c20d91ed9e15b::t_dea9e4fde46cc2 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cb4647fead382f17aa8689c605fc28c7c1c54936",
+  "prompts": {},
+  "sessions": {
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}

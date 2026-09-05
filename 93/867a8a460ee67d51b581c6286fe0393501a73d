@@ -1,0 +1,35 @@
+src/game/terrain.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 39-44,59-61
+convex/forge.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 6,53-55,61,71,80
+src/game/world.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 23-24,27-33,45-47,49-53,119-120,127,150-160,179-181,227-272,276,280-284,366,375-379,386-390,420-474
+src/App.tsx
+  s_9c20d91ed9e15b::t_8cedfe756655e5 180,182
+convex/composer.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 144-159
+src/game/index.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 93
+src/levels.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 12-13,15-16,79-81,100-102,121,123,142-144
+src/useLadder.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 230,232-236
+convex/schema.ts
+  s_9c20d91ed9e15b::t_8cedfe756655e5 70-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "93867a8a460ee67d51b581c6286fe0393501a73d",
+  "prompts": {},
+  "sessions": {
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
