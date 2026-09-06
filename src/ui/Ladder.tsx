@@ -123,7 +123,10 @@ interface RungProps {
 function Rung({ level, frontier, above, maxCleared, next, now, onPlay }: RungProps) {
   const isFrontier = level.index === frontier;
   const pending = level.status !== "ready";
-  const playable = !pending && level.index <= maxCleared + 1;
+  // `?dev` lifts the progression gate so any forged floor can be entered
+  // without climbing to it — the point is to inspect a world, not to earn it.
+  // A pending floor stays locked either way: it has no splat to load yet.
+  const playable = !pending && (DEV || level.index <= maxCleared + 1);
   const isNext = playable && level.index === next;
   const elapsed =
     level.forgeStartedAt && isForging(level.status)
@@ -180,7 +183,9 @@ function Rung({ level, frontier, above, maxCleared, next, now, onPlay }: RungPro
           </>
         ) : playable ? (
           <span className={isNext ? "cta" : "cta quiet"}>
-            {isNext ? (level.index <= maxCleared ? "Climb again ▶" : "Climb ▶") : "Replay"}
+            {/* "Replay" only makes sense for a floor you have actually beaten;
+                a floor `?dev` unlocked ahead of you has never been climbed. */}
+            {level.index > maxCleared ? "Climb ▶" : isNext ? "Climb again ▶" : "Replay"}
           </span>
         ) : level.index === next + 1 ? (
           <span className="dim">clear floor {level.index - 1} first</span>

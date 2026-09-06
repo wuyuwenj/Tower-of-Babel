@@ -26,4 +26,4 @@ dist-ssr
 .env
 .env.local
 
-public/worlds/
+public/worlds
