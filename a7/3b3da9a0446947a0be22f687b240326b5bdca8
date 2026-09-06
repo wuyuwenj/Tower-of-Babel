@@ -1,0 +1,17 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a73b3da9a0446947a0be22f687b240326b5bdca8",
+  "prompts": {},
+  "sessions": {
+    "s_281abf673eac41": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d38ddf19-be3f-49fd-8eb3-0477f4ea8c60",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
