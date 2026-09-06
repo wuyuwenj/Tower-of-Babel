@@ -1,0 +1,25 @@
+src/game/models.ts
+  s_281abf673eac41::t_982069129611f2 36-60
+src/game/player.ts
+  s_281abf673eac41::t_da078d094dc7ee 4,9-20,66-72,102,104,135-184,202,296-309,326-327
+scripts/gen-player.mjs
+  s_281abf673eac41::t_3478fcf146520e 1-245
+public/player/architect.rig.json
+  s_281abf673eac41::t_cd6334edc151b2 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a7aa37f1f8a016aff3022f67f23fda8580b93c5b",
+  "prompts": {},
+  "sessions": {
+    "s_281abf673eac41": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d38ddf19-be3f-49fd-8eb3-0477f4ea8c60",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
