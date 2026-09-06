@@ -1,0 +1,21 @@
+scripts/paint-pano.ts
+  s_9c20d91ed9e15b::t_b88936faf30393 6,27,102-103
+  s_9c20d91ed9e15b::t_c8fba840a61179 1-5,7-26,28-85,96-101,104-116
+  s_9c20d91ed9e15b::t_f3ba35d76f0a35 86-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "27d4c241ebf6cae17bbb36ddc116347f731d1b09",
+  "prompts": {},
+  "sessions": {
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}

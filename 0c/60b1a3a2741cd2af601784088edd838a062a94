@@ -1,0 +1,24 @@
+src/App.tsx
+  s_9c20d91ed9e15b::t_e3483ea6e6b457 183
+src/game/world.ts
+  s_9c20d91ed9e15b::t_e3483ea6e6b457 3,25-30,38-41,57,199,315-334,444-447,527-534
+  s_9c20d91ed9e15b::t_5b426a2404511a 535-536
+src/levels.ts
+  s_9c20d91ed9e15b::t_e3483ea6e6b457 17-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0c60b1a3a2741cd2af601784088edd838a062a94",
+  "prompts": {},
+  "sessions": {
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
