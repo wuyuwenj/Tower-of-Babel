@@ -177,7 +177,7 @@ export class World {
     let usedMesh = false;
     if (spec.colliderUrl) {
       try {
-        await this.loadColliderMesh(spec.colliderUrl, splat.position.y);
+        await this.loadColliderMesh(spec.colliderUrl, splat.position.y, spec.scale ?? 1);
         usedMesh = this.colliderAgreesWithSplat();
         if (!usedMesh) {
           console.warn("collider mesh disagrees with the splat; using sampled terrain");
@@ -396,13 +396,14 @@ export class World {
     this.groundBody = body;
   }
 
-  private async loadColliderMesh(url: string, yOffset: number): Promise<void> {
+  private async loadColliderMesh(url: string, yOffset: number, scale: number): Promise<void> {
     // Shared Draco-capable loader: a Mint collider is compressed too, and
     // losing it silently would drop the floor out of the level.
     const gltf = await createGltfLoader().loadAsync(url);
     // The collider ships in the splat's own frame, so it needs the same
-    // flip and vertical alignment the splat got.
+    // flip, scale and vertical alignment the splat got.
     gltf.scene.rotation.x = Math.PI;
+    gltf.scene.scale.setScalar(scale);
     gltf.scene.position.y = yOffset;
     const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     this.groundBody = body;
