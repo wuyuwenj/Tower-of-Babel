@@ -1,0 +1,19 @@
+src/game/world.ts
+  s_9c20d91ed9e15b::t_04d26e3547d49b 180,399,404,406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "bfb406baae35838ec105635fcd1f0195c2503385",
+  "prompts": {},
+  "sessions": {
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
