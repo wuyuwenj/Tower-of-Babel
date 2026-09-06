@@ -1,8 +1,9 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { compose, composeFromPrompt, CREATURE_SUFFIX, withArena } from "./composer";
 import { enrich } from "./enrich";
 import * as mint from "./mint";
@@ -357,11 +358,11 @@ async function generateModelFallback(prompt: string): Promise<string | null> {
 
 type Json = Record<string, unknown>;
 
-async function fail(
-  ctx: { runMutation: (ref: unknown, args: unknown) => Promise<unknown> },
-  levelId: unknown,
-  err: unknown,
-): Promise<void> {
+// Structurally typing ctx as `(ref: unknown, args: unknown) => …` looks
+// permissive but is the opposite: a real ActionCtx.runMutation demands a
+// FunctionReference, and a function taking `unknown` cannot stand in for one.
+// Naming the generated types is both stricter and what actually compiles.
+async function fail(ctx: ActionCtx, levelId: Id<"levels">, err: unknown): Promise<void> {
   const message = err instanceof Error ? err.message : String(err);
   console.error("forge failed:", message);
   await ctx.runMutation(internal.levels.setStatus, {
