@@ -1,0 +1,33 @@
+public/player/wanderer.rig.json
+  s_165c5915ffeb5f::t_850a5db144fe54 1-27
+scripts/gen-player.mjs
+  s_281abf673eac41::t_0f761c014887ad 1-244
+src/game/models.ts
+  s_281abf673eac41::t_7c044fb9d017a6 36-68,216-240
+src/game/player.ts
+  s_281abf673eac41::t_e276700e58dfea 4,9-33,79-85,115,117,148-209,227,321-334,351-352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "78c53eb365881e9c001339e110288a16a2105c85",
+  "prompts": {},
+  "sessions": {
+    "s_165c5915ffeb5f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba991453-5e3d-4da6-be3a-321a3f2153fd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    },
+    "s_281abf673eac41": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d38ddf19-be3f-49fd-8eb3-0477f4ea8c60",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
