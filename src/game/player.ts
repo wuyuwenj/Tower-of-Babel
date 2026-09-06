@@ -1,10 +1,36 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { BASE_PLAYER, type PlayerStats } from "./balance";
+import { loadAnimated } from "./models";
 import type { World } from "./world";
 
 const CAPSULE_HALF_HEIGHT = 0.55;
 const CAPSULE_RADIUS = 0.42;
+/** The capsule's full height; the character is normalized to match it. */
+const CHARACTER_HEIGHT = (CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS) * 2;
+
+/**
+ * The player character, generated and rigged by scripts/gen-player.mjs. The
+ * first file carries the mesh and the idle; the others lend their clips. Until
+ * it loads — or if it never does — the capsule stands in.
+ */
+const CHARACTER_URL = "/player/wanderer.glb";
+const CHARACTER_CLIP_URLS = ["/player/wanderer.run.glb", "/player/wanderer.jump.glb"];
+/** Seconds to blend between idle, run and jump. */
+const CLIP_FADE = 0.15;
+
+/**
+ * The capsule glowed; a textured character does not, and on a night splat it
+ * sinks into the floor. Same cure as CREATURE_GLOW in enemies.ts — an emissive
+ * lift regardless of texture — but gentler and near-white: at the creatures'
+ * strength, in the ring's blue, a light shirt turned into a flat blue cutout.
+ */
+const CHARACTER_GLOW = new THREE.Color(0xdde6ff);
+const CHARACTER_GLOW_INTENSITY = 0.18;
+/** A warm light carried at the hip: lights the player and whatever closes in. */
+const LANTERN_COLOR = 0xffb15c;
+const LANTERN_INTENSITY = 6;
+const LANTERN_RANGE = 7;
 const CAM_HEIGHT = 13.5;
 const CAM_BACK = 12.5;
 const CAM_LERP = 6.5;
@@ -50,6 +76,13 @@ export class Player {
   /** Squash on landing and stretch in the air, purely cosmetic. */
   private squash = 0;
 
+  // The generated character, once loaded. Clips are keyed idle / run / jump.
+  private mixer: THREE.AnimationMixer | null = null;
+  private actions = new Map<string, THREE.AnimationAction>();
+  private current: THREE.AnimationAction | null = null;
+  private placeholder: THREE.Object3D[] = [];
+  private disposed = false;
+
   private world: World;
 
   constructor(world: World) {
@@ -79,7 +112,9 @@ export class Player {
     group.add(ring);
 
     this.mesh = group;
+    this.placeholder = [body, nose];
     world.scene.add(group);
+    void this.loadCharacter();
 
     this.body = world.physics.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, 2, 0),
@@ -110,6 +145,68 @@ export class Player {
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
 
+  private async loadCharacter(): Promise<void> {
+    const model = await loadAnimated(CHARACTER_URL, CHARACTER_CLIP_URLS);
+    if (!model || this.disposed) return;
+
+    // Normalize to the capsule's height, feet on the group origin, centred.
+    const { scene, clips, yawToForward } = model;
+    scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(scene);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = CHARACTER_HEIGHT / Math.max(size.y, 0.0001);
+    const rig = new THREE.Group();
+    // The capsule's nose points -Z, and `update` turns the group so -Z meets
+    // `facing`. Turn the character to +Z first (its rig says which way it
+    // came), then about-face to match the nose.
+    rig.rotation.y = yawToForward + Math.PI;
+    scene.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+    rig.add(scene);
+    rig.scale.setScalar(scale);
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // A skinned mesh's bounds move with the pose; culling by the bind pose
+      // would blink the character out mid-stride at the frame's edge.
+      mesh.frustumCulled = false;
+      for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        if (mat instanceof THREE.MeshStandardMaterial) {
+          mat.emissive = CHARACTER_GLOW.clone();
+          mat.emissiveIntensity = CHARACTER_GLOW_INTENSITY;
+        }
+      }
+    });
+
+    const lantern = new THREE.PointLight(LANTERN_COLOR, LANTERN_INTENSITY, LANTERN_RANGE, 2);
+    lantern.position.set(0, CHARACTER_HEIGHT * 0.5, 0);
+
+    for (const part of this.placeholder) this.mesh.remove(part);
+    this.placeholder = [];
+    this.mesh.add(rig, lantern);
+
+    this.mixer = new THREE.AnimationMixer(scene);
+    for (const clip of clips) {
+      const key = ["idle", "run", "jump"].find((k) => clip.name.toLowerCase().includes(k));
+      if (!key || this.actions.has(key)) continue;
+      const action = this.mixer.clipAction(clip);
+      if (key === "jump") {
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+      }
+      this.actions.set(key, action);
+    }
+    this.play("idle");
+  }
+
+  /** Crossfade to a clip; a no-op if it is already playing or missing. */
+  private play(key: string): void {
+    const next = this.actions.get(key);
+    if (!next || next === this.current) return;
+    next.reset().play();
+    if (this.current) next.crossFadeFrom(this.current, CLIP_FADE, true);
+    this.current = next;
+  }
+
   reset(spawn = new THREE.Vector3(0, 0, 0)): void {
     const y = this.world.groundHeight(spawn.x, spawn.z) + CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS + 0.1;
     this.body.setNextKinematicTranslation({ x: spawn.x, y, z: spawn.z });
@@ -127,6 +224,7 @@ export class Player {
     this.camAnchorY = y;
     this.squash = 0;
     this.mesh.scale.setScalar(1);
+    this.play("idle");
   }
 
   setStats(stats: PlayerStats): void {
@@ -220,6 +318,20 @@ export class Player {
     if (this.hp < this.stats.maxHp) {
       this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.regen * dt);
     }
+
+    if (this.mixer) {
+      if (!this.grounded) {
+        this.play("jump");
+      } else if (this.moveDir.lengthSq() > 0) {
+        this.play("run");
+        // Upgrades raise speed; the legs should keep up rather than slide.
+        const run = this.actions.get("run");
+        if (run) run.timeScale = THREE.MathUtils.clamp(this.stats.speed / BASE_PLAYER.speed, 0.8, 1.8);
+      } else {
+        this.play("idle");
+      }
+      this.mixer.update(dt);
+    }
   }
 
   updateCamera(camera: THREE.PerspectiveCamera, dt: number): void {
@@ -236,6 +348,8 @@ export class Player {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.mixer?.stopAllAction();
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     this.world.scene.remove(this.mesh);

@@ -33,6 +33,39 @@ export function loadGltf(url: string): Promise<THREE.Group> {
   return loadRaw(url).then((g) => g.scene.clone(true));
 }
 
+export interface AnimatedModel {
+  scene: THREE.Group;
+  clips: THREE.AnimationClip[];
+  /**
+   * Yaw (radians) that turns the model to face +Z. Tripo does not export
+   * rigged characters in one orientation — one came back facing −X — so the
+   * skeleton is asked: its bones are named Left/Right, the mean Right position
+   * minus the mean Left gives the model's right, and forward = up × right.
+   * Zero when the rig carries no side labels.
+   */
+  yawToForward: number;
+}
+
+/**
+ * A single rigged character with its clips, for a SkinnedMesh + AnimationMixer.
+ *
+ * Extra URLs contribute only their animations: Tripo writes one clip per
+ * retarget, all on the same rig, and clips bind to bones by name, so the
+ * character loads once and borrows the others' tracks.
+ */
+export async function loadAnimated(url: string, clipUrls: string[] = []): Promise<AnimatedModel | null> {
+  try {
+    const [main, ...extra] = await Promise.all([loadRaw(url), ...clipUrls.map(loadRaw)]);
+    // A plain clone leaves the skeleton bound to the cached scene's bones.
+    const scene = cloneSkeleton(main.scene) as THREE.Group;
+    const clips = [...main.animations, ...extra.flatMap((g) => g.animations)];
+    return { scene, clips, yawToForward: yawToForward(scene) };
+  } catch (err) {
+    console.warn(`model load failed (${url}):`, err);
+    return null;
+  }
+}
+
 /**
  * A walk cycle baked to a texture so an InstancedMesh can play it.
  *
@@ -178,6 +211,31 @@ export async function loadInstanceable(
     console.warn(`model load failed (${url}):`, err);
     return null;
   }
+}
+
+function yawToForward(scene: THREE.Object3D): number {
+  scene.updateMatrixWorld(true);
+  const left = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  let nl = 0;
+  let nr = 0;
+  const p = new THREE.Vector3();
+  scene.traverse((o) => {
+    if (!(o as THREE.Bone).isBone) return;
+    if (/left/i.test(o.name)) {
+      left.add(o.getWorldPosition(p));
+      nl++;
+    } else if (/right/i.test(o.name)) {
+      right.add(o.getWorldPosition(p));
+      nr++;
+    }
+  });
+  if (nl === 0 || nr === 0) return 0;
+  right.divideScalar(nr).sub(left.divideScalar(nl)).setY(0);
+  if (right.lengthSq() < 1e-8) return 0;
+  const forward = new THREE.Vector3(0, 1, 0).cross(right.normalize());
+  // R_y(θ) · forward = +Z  ⇒  θ = atan2(−fx, fz).
+  return Math.atan2(-forward.x, forward.z);
 }
 
 function toFloat4(src: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, offset: number): THREE.BufferAttribute {
