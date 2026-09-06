@@ -1,0 +1,23 @@
+convex/composer.ts
+  s_9c20d91ed9e15b::t_8309aea5bb501d 153-156
+package.json
+  s_9c20d91ed9e15b::t_8309aea5bb501d 13
+scripts/forge-seeds.ts
+  s_9c20d91ed9e15b::t_8309aea5bb501d 1-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2143dd7fd2a75c79a312ea1aa26f146ec9a8e437",
+  "prompts": {},
+  "sessions": {
+    "s_9c20d91ed9e15b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9530c75-6ac4-473e-9efb-5699ccb3c0f1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
