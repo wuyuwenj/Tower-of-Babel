@@ -1,0 +1,19 @@
+vercel.json
+  s_165c5915ffeb5f::t_db82891e27d767 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8d709fb28e46d4531c7050ad474154c9733d7153",
+  "prompts": {},
+  "sessions": {
+    "s_165c5915ffeb5f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba991453-5e3d-4da6-be3a-321a3f2153fd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "JamesWU <wuyuwen0@gmail.com>"
+    }
+  }
+}
