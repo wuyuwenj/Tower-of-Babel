@@ -425,6 +425,9 @@ export const applyAssets = internalMutation({
     monumentUrl: v.optional(v.string()),
     yOffset: v.optional(v.number()),
     scale: v.optional(v.number()),
+    // A measured ring beats the seed table's hand-tuned one once a rung has
+    // a real collider; the client only falls back to the table when unset.
+    arenaRadius: v.optional(v.number()),
     status: v.optional(levelStatus),
   },
   handler: async (ctx, { levelId, status, ...assets }) => {
