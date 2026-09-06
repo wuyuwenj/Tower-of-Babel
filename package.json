@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "fetch:worlds": "bash scripts/fetch-worlds.sh",
     "sim": "tsx scripts/balance-sim.ts",
-    "check:worlds": "node scripts/check-world-resolver.ts"
+    "check:worlds": "node scripts/check-world-resolver.ts",
+    "forge:seeds": "tsx scripts/forge-seeds.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",

@@ -177,8 +177,10 @@ export default function App() {
       forgedBy: level.forgedBy,
       coForgers: level.coForgers,
       message: level.message,
-      yOffset: level.yOffset,
+      yOffset: level.yOffset ?? undefined,
       scale: level.scale,
+      arenaRadius: level.arenaRadius ?? undefined,
+      ceilingCut: level.ceilingCut,
       composition: level.composition,
       cardSkins: level.cardSkins,
     });

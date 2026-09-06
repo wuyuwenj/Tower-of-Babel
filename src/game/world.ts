@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createGltfLoader } from "./gltf-runtime";
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatEdit, SplatEditSdf, SplatEditSdfType, SplatMesh } from "@sparkjsdev/spark";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { ARENA_RADIUS, ARENA_RADIUS_MIN } from "./balance";
 import { TERRAIN_GRID, sampleTerrain, terrainHeightAt, terrainWireframe, type Terrain } from "./terrain";
@@ -20,7 +20,26 @@ export interface WorldSpec {
   /** Splats are usually Y-down; flip 180 degrees about X unless told otherwise. */
   flip?: boolean;
   scale?: number;
+  /** Radius of the invisible arena wall. Defaults to ARENA_RADIUS. */
+  arenaRadius?: number;
+  /**
+   * Height above the floor at which the world is cut away, so a follow camera
+   * above a room's ceiling looks down into it rather than at it. Defaults to
+   * CEILING_CUT; null keeps the whole world. Tune with ?ceiling=N (0 = none).
+   */
+  ceilingCut?: number | null;
 }
+
+/** Segments in the arena wall. 32 is smooth enough that corners are unnoticeable. */
+const WALL_SEGMENTS = 32;
+/** Wall spans floorY - 2 up to floorY + 10: unsteppable, unjumpable, uneven-floor proof. */
+const WALL_HALF_HEIGHT = 6;
+const WALL_THICKNESS = 0.3;
+/** Above every head and enemy, well below the camera at CAM_HEIGHT. */
+const CEILING_CUT = 3.5;
+/** Fade the cut over this many units rather than slicing splats in half. */
+const CEILING_CUT_SOFT_EDGE = 0.6;
+const UP = new THREE.Vector3(0, 1, 0);
 
 export class World {
   readonly scene = new THREE.Scene();
@@ -33,16 +52,26 @@ export class World {
   private splat: SplatMesh | null = null;
   private groundBody: RAPIER.RigidBody | null = null;
   private groundColliders: RAPIER.Collider[] = [];
-  private wireframe: THREE.LineSegments | null = null;
+  private wallBody: RAPIER.RigidBody | null = null;
+  private arenaRing: THREE.Mesh | null = null;
+  private ceilingCut: SplatEdit | null = null;
+  private wireframe: THREE.Group | null = null;
   private terrain: Terrain | null = null;
-  /** Play radius for the loaded world, measured rather than assumed. */
+  /**
+   * Play radius for the loaded world: measured from the cloud rather than
+   * assumed, overridable per level, and where the arena wall stands. Read by
+   * Enemies so spawns land inside it.
+   */
   arenaRadius = ARENA_RADIUS;
   private readonly downRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 
   constructor(canvas: HTMLCanvasElement, physics: RAPIER.World) {
     this.physics = physics;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Splats are soft blobs that gain nothing from a Retina buffer, and their
+    // cost scales with the pixels they cover: a 2.45 M-splat seed world ran at
+    // 37 fps in a 2x buffer and hit the vsync cap in a 1x one on the same GPU.
+    this.renderer.setPixelRatio(1);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(0x05060a);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -101,12 +130,15 @@ export class World {
   async load(spec: WorldSpec, onStage?: (stage: string) => void): Promise<void> {
     this.unloadWorldGeometry();
 
+    this.arenaRadius = resolveArenaRadius(spec, ARENA_RADIUS);
+
     // ?nosplat=1 skips the splat entirely: a fast path for testing the game
     // loop, and a usable fallback on machines that cannot render splats.
     if (new URLSearchParams(location.search).get("nosplat")) {
       onStage?.("Building ground");
       this.buildFlatGround();
       this.scene.add(gridHelper());
+      this.buildArenaWall();
       onStage?.("Ready");
       return;
     }
@@ -129,11 +161,17 @@ export class World {
     splat.position.y = spec.yOffset ?? (terrain.filled ? terrain.yOffset : 0);
 
     // Generated worlds are not a fixed size: a Mint basin measures ~21 units
-    // across where the seed worlds are far larger. Fit the arena to the world
-    // so enemies never spawn off the edge of it.
-    this.arenaRadius = terrain.filled
-      ? Math.max(ARENA_RADIUS_MIN, Math.min(ARENA_RADIUS, terrain.worldRadius * 0.92))
-      : ARENA_RADIUS;
+    // across where the seed worlds are far larger, so fit the arena to the
+    // world rather than assuming it. The estimate is the cloud's footprint,
+    // which is right for a generated basin but far wider than the room you can
+    // stand in inside a scanned scene — so a level may override it, and the
+    // seed rungs carry radii measured off their own splats.
+    this.arenaRadius = resolveArenaRadius(
+      spec,
+      terrain.filled
+        ? Math.max(ARENA_RADIUS_MIN, Math.min(ARENA_RADIUS, terrain.worldRadius * 0.92))
+        : ARENA_RADIUS,
+    );
 
     onStage?.("Building ground");
     let usedMesh = false;
@@ -151,6 +189,14 @@ export class World {
       }
     }
     if (!usedMesh) this.buildSampledGround();
+
+    // A collider mesh knows where the walls are, which the splat cloud never
+    // did. Fit the ring to the room the mesh actually encloses.
+    if (usedMesh) this.arenaRadius = resolveArenaRadius(spec, this.fitArenaToCollider());
+
+    // After the ground, so the wall can sit on the floor it actually found.
+    this.buildArenaWall();
+    this.buildCeilingCut(spec);
 
     onStage?.("Ready");
   }
@@ -188,6 +234,36 @@ export class World {
     return total / hits < 2.5;
   }
 
+  /**
+   * Radius of the largest mostly-clear disc around the spawn, measured by
+   * casting rays outward against the collider mesh at knee height. The 20th
+   * percentile of wall distances is used so one doorway cannot inflate the
+   * ring and one pillar cannot collapse it: four directions in five are clear
+   * to at least this far. Rays start just outside the player's own capsule.
+   */
+  private fitArenaToCollider(): number {
+    const N = 64;
+    const start = 1.0;
+    const y = this.groundHeight(0, 0) + 0.9;
+    const ray = new RAPIER.Ray({ x: 0, y, z: 0 }, { x: 1, y: 0, z: 0 });
+    const dists: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      ray.origin.x = dx * start;
+      ray.origin.z = dz * start;
+      ray.dir.x = dx;
+      ray.dir.z = dz;
+      const hit = this.physics.castRay(ray, ARENA_RADIUS, true);
+      dists.push(hit ? start + hit.timeOfImpact : ARENA_RADIUS);
+    }
+    dists.sort((a, b) => a - b);
+    // Stand the ring half a metre off the nearest wall it is fitted to.
+    const fitted = dists[Math.floor(N * 0.2)] - 0.5;
+    return Math.max(ARENA_RADIUS_MIN, Math.min(ARENA_RADIUS, fitted));
+  }
+
   private clearGround(): void {
     for (const c of this.groundColliders) this.physics.removeCollider(c, false);
     this.groundColliders = [];
@@ -197,17 +273,84 @@ export class World {
     }
   }
 
-  /** Toggleable debug view of the floor the physics is actually using. */
+  /**
+   * A ring of static colliders penning the player into the playable middle.
+   *
+   * Generated worlds have walls you can see but not touch: a splat is not
+   * geometry, and the sampled heightfield deliberately keeps only each cell's
+   * floor, so vertical surfaces flatten out of it entirely. Rather than try to
+   * recover real walls from a point cloud, the arena is the contract — the
+   * world prompt asks for a clear middle, and this ring is where it ends.
+   */
+  private buildArenaWall(): void {
+    const radius = this.arenaRadius;
+    const floorY = this.groundHeight(0, 0);
+    const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.wallBody = body;
+
+    // Half the chord each segment spans, plus a little overlap so the joins
+    // between segments cannot open up a gap to squeeze through.
+    const half = Math.PI / WALL_SEGMENTS;
+    const halfChord = radius * Math.sin(half) + WALL_THICKNESS;
+    const quat = new THREE.Quaternion();
+
+    for (let i = 0; i < WALL_SEGMENTS; i++) {
+      const angle = (i / WALL_SEGMENTS) * Math.PI * 2;
+      // Turn the segment's long (local X) axis to lie along the tangent.
+      quat.setFromAxisAngle(UP, -(angle + Math.PI / 2));
+      const desc = RAPIER.ColliderDesc.cuboid(halfChord, WALL_HALF_HEIGHT, WALL_THICKNESS)
+        .setTranslation(
+          Math.cos(angle) * radius,
+          floorY + WALL_HALF_HEIGHT - 2,
+          Math.sin(angle) * radius,
+        )
+        .setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
+      this.physics.createCollider(desc, body);
+    }
+
+    this.arenaRing = arenaRing(radius, (x, z) => this.groundHeight(x, z));
+    this.scene.add(this.arenaRing);
+  }
+
+  /**
+   * Hide everything above head height. The camera follows from well above a
+   * room's ceiling, so without this an indoor world shows its roof and little
+   * else; with it the view is a dollhouse cut, straight down into the room.
+   * Spark evaluates the edit on the GPU per splat: a PLANE SDF is the
+   * half-space below its local XY plane, so it is turned to face up and
+   * inverted to select what is *above* the cut, then multiplied to alpha 0.
+   */
+  private buildCeilingCut(spec: WorldSpec): void {
+    const height = resolveCeilingCut(spec);
+    if (height === null) return;
+    const plane = new SplatEditSdf({ type: SplatEditSdfType.PLANE, invert: true, opacity: 0 });
+    plane.rotation.x = -Math.PI / 2; // local +Z → world +Y
+    plane.position.y = this.groundHeight(0, 0) + height;
+    const cut = new SplatEdit({ softEdge: CEILING_CUT_SOFT_EDGE });
+    cut.addSdf(plane);
+    this.scene.add(cut);
+    this.ceilingCut = cut;
+  }
+
+  /** Tint the boundary ring to match the level's theme. */
+  setArenaColor(color: number): void {
+    const material = this.arenaRing?.material as THREE.MeshBasicMaterial | undefined;
+    material?.color.setHex(color);
+  }
+
+  /** Toggleable debug view of the floor and wall the physics is actually using. */
   toggleWireframe(): void {
     if (this.wireframe) {
       this.scene.remove(this.wireframe);
-      this.wireframe.geometry.dispose();
+      disposeTree(this.wireframe);
       this.wireframe = null;
       return;
     }
-    if (!this.terrain) return;
-    this.wireframe = terrainWireframe(this.terrain);
-    this.scene.add(this.wireframe);
+    const group = new THREE.Group();
+    if (this.terrain) group.add(terrainWireframe(this.terrain));
+    group.add(wallWireframe(this.arenaRadius, this.groundHeight(0, 0)));
+    this.wireframe = group;
+    this.scene.add(group);
   }
 
   /**
@@ -289,7 +432,7 @@ export class World {
   private unloadWorldGeometry(): void {
     if (this.wireframe) {
       this.scene.remove(this.wireframe);
-      this.wireframe.geometry.dispose();
+      disposeTree(this.wireframe);
       this.wireframe = null;
     }
     this.terrain = null;
@@ -298,21 +441,58 @@ export class World {
       this.splat.dispose?.();
       this.splat = null;
     }
+    if (this.ceilingCut) {
+      this.scene.remove(this.ceilingCut);
+      this.ceilingCut = null;
+    }
+    if (this.arenaRing) {
+      this.scene.remove(this.arenaRing);
+      disposeTree(this.arenaRing);
+      this.arenaRing = null;
+    }
     for (const c of this.groundColliders) this.physics.removeCollider(c, false);
     this.groundColliders = [];
     if (this.groundBody) {
       this.physics.removeRigidBody(this.groundBody);
       this.groundBody = null;
     }
+    // Removing the body takes its wall colliders with it.
+    if (this.wallBody) {
+      this.physics.removeRigidBody(this.wallBody);
+      this.wallBody = null;
+    }
   }
 
-  /** Ground height under (x, z). Falls back to 0 when nothing is hit. */
-  groundHeight(x: number, z: number, from = 40): number {
+  /**
+   * Ground height under (x, z). Falls back to 0 when nothing is hit.
+   *
+   * A collider mesh for an interior has a ceiling, and a ray dropped from
+   * high up finds that first. So cast from just above head height at the
+   * floor the splat cloud reported, and only drop from the sky when that
+   * finds nothing. The wall never counts: enemies cross it, and a ray
+   * starting inside a wall segment would read its top as the ground.
+   */
+  groundHeight(x: number, z: number): number {
+    const guess = this.terrain ? terrainHeightAt(this.terrain, x, z) : 0;
+    const low = this.castDown(x, guess + 2.3, z, 60);
+    if (low !== null) return low;
+    return this.castDown(x, 40, z, 100) ?? 0;
+  }
+
+  private castDown(x: number, from: number, z: number, maxToi: number): number | null {
     this.downRay.origin.x = x;
     this.downRay.origin.y = from;
     this.downRay.origin.z = z;
-    const hit = this.physics.castRay(this.downRay, from + 60, true);
-    return hit ? from - hit.timeOfImpact : 0;
+    const hit = this.physics.castRay(
+      this.downRay,
+      maxToi,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      this.wallBody ?? undefined,
+    );
+    return hit ? from - hit.timeOfImpact : null;
   }
 
   render(): void {
@@ -331,6 +511,72 @@ function gridHelper(): THREE.GridHelper {
   const grid = new THREE.GridHelper(ARENA_RADIUS * 2, 34, 0x39ff9a, 0x1d5c3c);
   grid.position.y = 0.02;
   return grid;
+}
+
+/**
+ * The arena radius for a level: `?arena=12` beats a level's own value, which
+ * in turn beats the radius measured from the splat cloud. The query override
+ * is how the per-level numbers in SEED_LEVELS get tuned without a rebuild.
+ */
+function resolveArenaRadius(spec: WorldSpec, measured: number): number {
+  const override = Number(new URLSearchParams(location.search).get("arena"));
+  if (Number.isFinite(override) && override > 0) return override;
+  return spec.arenaRadius ?? measured;
+}
+
+/** Cut height above the floor, or null for no cut. */
+function resolveCeilingCut(spec: WorldSpec): number | null {
+  const param = new URLSearchParams(location.search).get("ceiling");
+  if (param !== null) {
+    const override = Number(param);
+    return Number.isFinite(override) && override > 0 ? override : null;
+  }
+  return spec.ceilingCut === undefined ? CEILING_CUT : spec.ceilingCut;
+}
+
+/**
+ * A faint ring on the floor at the wall. An invisible wall that stops you
+ * somewhere unmarked reads as a bug, so the boundary is drawn — and drawn
+ * following the ground, since the sampled floor is rarely level.
+ */
+function arenaRing(radius: number, heightAt: (x: number, z: number) => number): THREE.Mesh {
+  const geom = new THREE.RingGeometry(radius - 0.12, radius + 0.12, 128);
+  geom.rotateX(-Math.PI / 2);
+  const pos = geom.getAttribute("position");
+  for (let i = 0; i < pos.count; i++) {
+    pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)) + 0.06);
+  }
+  pos.needsUpdate = true;
+  return new THREE.Mesh(
+    geom,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+}
+
+/** Debug companion to terrainWireframe: the wall the player is actually hitting. */
+function wallWireframe(radius: number, floorY: number): THREE.LineSegments {
+  const geom = new THREE.CylinderGeometry(radius, radius, WALL_HALF_HEIGHT * 2, WALL_SEGMENTS, 1, true);
+  geom.translate(0, floorY + WALL_HALF_HEIGHT - 2, 0);
+  return new THREE.LineSegments(
+    new THREE.WireframeGeometry(geom),
+    new THREE.LineBasicMaterial({ color: 0xff9a39, transparent: true, opacity: 0.3 }),
+  );
+}
+
+function disposeTree(root: THREE.Object3D): void {
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    mesh.geometry?.dispose();
+    const material = mesh.material;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material?.dispose();
+  });
 }
 
 export { RAPIER };

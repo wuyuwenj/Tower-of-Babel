@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { compose, composeFromPrompt, CREATURE_SUFFIX } from "./composer";
+import { compose, composeFromPrompt, CREATURE_SUFFIX, withArena } from "./composer";
 import { enrich } from "./enrich";
 import * as mint from "./mint";
 
@@ -50,12 +50,15 @@ export const generate = internalAction({
         ? composeFromPrompt(level.prompt as string, level.tally)
         : compose(level.tally);
       const spec = await enrich(base, level.tally, { keepWorldPrompt: written });
+      // enrich() may rewrite worldPrompt wholesale, so the arena clause is
+      // appended after it rather than composed in and hoped for.
+      const worldPrompt = withArena(spec.worldPrompt);
 
       await ctx.runMutation(internal.levels.applyComposition, {
         levelId,
         theme: spec.theme,
         themeTag: spec.themeTag,
-        worldPrompt: spec.worldPrompt,
+        worldPrompt,
         enemyPrompt: spec.enemyPrompt,
         monumentPrompt: spec.monumentPrompt,
         composition: spec.composition,
@@ -65,7 +68,7 @@ export const generate = internalAction({
       // 2. The world. Mint hands off to the poller; anything else runs inline.
       if (mint.hasMintKey()) {
         const worldOp =
-          level.providerWorldId ?? (await mint.startWorld(spec.worldPrompt, "standard"));
+          level.providerWorldId ?? (await mint.startWorld(worldPrompt, "standard"));
         await ctx.runMutation(internal.levels.rememberProvider, {
           levelId,
           providerWorldId: worldOp,
@@ -74,7 +77,7 @@ export const generate = internalAction({
         return;
       }
 
-      const world = await generateWorldFallback(spec.worldPrompt);
+      const world = await generateWorldFallback(worldPrompt);
       await ctx.runMutation(internal.levels.applyAssets, {
         levelId,
         splatUrl: world.splatUrl,

@@ -67,6 +67,8 @@ export default defineSchema({
     monumentUrl: v.optional(v.string()),
     yOffset: v.optional(v.number()),
     scale: v.optional(v.number()),
+    // Set from the Convex dashboard to re-fit a forged rung's arena without a deploy.
+    arenaRadius: v.optional(v.number()),
 
     composition: v.optional(v.array(v.array(archetype))),
     cardSkins: v.optional(v.array(cardSkin)),
